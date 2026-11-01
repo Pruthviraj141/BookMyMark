@@ -93,7 +93,23 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
     }
   })();
 
-  const displayTitle = preview?.title || bookmark.title || bookmark.shared_text || cleanHost;
+  const isUrl = (s?: string | null) => Boolean(s && (s.startsWith('http://') || s.startsWith('https://') || s.includes('://')));
+
+  const getCleanTitle = () => {
+    if (bookmark.title && !isUrl(bookmark.title)) return bookmark.title;
+    if (preview?.title && !isUrl(preview.title)) return preview.title;
+    if (bookmark.shared_text && !isUrl(bookmark.shared_text)) return bookmark.shared_text.slice(0, 80);
+    switch (bookmark.platform) {
+      case 'instagram': return 'Instagram Reel';
+      case 'x': return 'X Post';
+      case 'youtube': return 'YouTube Video';
+      case 'reddit': return 'Reddit Post';
+      case 'tiktok': return 'TikTok Video';
+      default: return cleanHost || 'Saved Bookmark';
+    }
+  };
+
+  const displayTitle = getCleanTitle();
   const displaySummary = bookmark.summary || preview?.description || bookmark.description;
 
   return (
@@ -102,8 +118,14 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
       onClick={() => onClick(bookmark)}
       className="group flex flex-col bg-[#161822] hover:bg-[#1c1e2a] active:scale-[0.98] transition-all duration-200 rounded-2xl overflow-hidden border border-[#272a38] hover:border-violet-500/40 shadow-lg shadow-black/40 cursor-pointer mb-3 select-none"
     >
-      {/* Prominent Cover Image or Clean Fallback */}
-      <div className={`relative w-full ${aspectClass} bg-[#0e1017] overflow-hidden flex items-center justify-center`}>
+      {/* Prominent Cover Image or Clean Fallback - Tap directly opens in native app */}
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          NativeSessionBridge.openAppUrl(targetUrl);
+        }}
+        className={`relative w-full ${aspectClass} bg-[#0e1017] overflow-hidden flex items-center justify-center cursor-pointer`}
+      >
         {activeImageUrl ? (
           <img
             src={activeImageUrl}

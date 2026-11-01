@@ -127,27 +127,35 @@ class NativeBridgePlugin : Plugin() {
             return
         }
 
-        val uri = Uri.parse(rawUrl.trim())
-        val host = uri.host?.lowercase() ?: ""
-        val context = this.context
+        val trimmed = rawUrl.trim()
+        val url = if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "https://$trimmed"
+        } else {
+            trimmed
+        }
 
-        // Determine target application package based on detected platform
-        val targetPackage = when {
-            host.contains("instagram.com") || host.contains("instagr.am") -> "com.instagram.android"
-            host.contains("twitter.com") || host.contains("x.com") || host.contains("t.co") -> "com.twitter.android"
-            host.contains("youtube.com") || host.contains("youtu.be") -> "com.google.android.youtube"
-            host.contains("reddit.com") || host.contains("redd.it") -> "com.reddit.frontpage"
-            host.contains("tiktok.com") -> "com.zhiliaoapp.musically"
-            else -> null
+        val uri = Uri.parse(url)
+        val host = uri.host?.lowercase() ?: ""
+        val act = this.activity ?: this.context
+        val pm = act.packageManager
+
+        // Identify candidate packages for platform
+        val candidatePackages = when {
+            host.contains("instagram.com") || host.contains("instagr.am") -> listOf("com.instagram.android")
+            host.contains("twitter.com") || host.contains("x.com") || host.contains("t.co") -> listOf("com.twitter.android")
+            host.contains("youtube.com") || host.contains("youtu.be") -> listOf("com.google.android.youtube", "app.revanced.android.youtube")
+            host.contains("reddit.com") || host.contains("redd.it") -> listOf("com.reddit.frontpage")
+            host.contains("tiktok.com") -> listOf("com.zhiliaoapp.musically")
+            else -> emptyList()
         }
 
         var openedInTargetApp = false
 
-        if (targetPackage != null) {
+        // 1. Try launching with target package if installed
+        for (pkg in candidatePackages) {
             try {
-                val pm = context.packageManager
                 val isInstalled = try {
-                    pm.getPackageInfo(targetPackage, 0)
+                    pm.getPackageInfo(pkg, 0)
                     true
                 } catch (_: Exception) {
                     false
@@ -155,27 +163,39 @@ class NativeBridgePlugin : Plugin() {
 
                 if (isInstalled) {
                     val appIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-                        setPackage(targetPackage)
+                        setPackage(pkg)
+                        addCategory(Intent.CATEGORY_BROWSABLE)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
-                    context.startActivity(appIntent)
+                    act.startActivity(appIntent)
                     openedInTargetApp = true
+                    break
                 }
             } catch (_: Exception) {
                 openedInTargetApp = false
             }
         }
 
-        // Fallback: Default system browser (no embedded webview)
+        // 2. Fallback: launch using standard Android ACTION_VIEW (triggers native App Links / browser)
         if (!openedInTargetApp) {
             try {
-                val browserIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                val viewIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    addCategory(Intent.CATEGORY_BROWSABLE)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(browserIntent)
+                act.startActivity(viewIntent)
             } catch (e: Exception) {
-                call.reject("Could not open URL: ${e.message}")
-                return
+                try {
+                    val browserIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    act.startActivity(Intent.createChooser(browserIntent, "Open Link").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                } catch (chooserErr: Exception) {
+                    call.reject("Could not open URL: ${chooserErr.message}")
+                    return
+                }
             }
         }
 

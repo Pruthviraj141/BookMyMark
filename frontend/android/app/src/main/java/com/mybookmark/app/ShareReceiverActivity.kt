@@ -2,6 +2,7 @@ package com.mybookmark.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -160,9 +161,22 @@ class ShareReceiverActivity : AppCompatActivity() {
                     }
                     put("original_url", url)
                     put("normalized_url", url)
-                    put("platform", platform)
-                    put("title", if (sharedText.isNotBlank()) sharedText.take(80) else url)
-                    put("description", sharedText)
+                    val cleanTitle = when {
+                        sharedText.isNotBlank() && !sharedText.startsWith("http://") && !sharedText.startsWith("https://") -> sharedText.take(80)
+                        platform == "instagram" -> "Instagram Reel"
+                        platform == "x" -> "X Post"
+                        platform == "youtube" -> "YouTube Video"
+                        platform == "reddit" -> "Reddit Post"
+                        platform == "tiktok" -> "TikTok Video"
+                        else -> {
+                            try {
+                                Uri.parse(url).host?.removePrefix("www.") ?: "Saved Bookmark"
+                            } catch (_: Exception) {
+                                "Saved Bookmark"
+                            }
+                        }
+                    }
+                    put("title", cleanTitle)
                     put("shared_text", sharedText)
                     put("thumbnail_url", JSONObject.NULL) // Never store images
                     put("ai_status", "pending")

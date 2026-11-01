@@ -336,10 +336,14 @@ async function enrichBookmark(
     // 4. Update bookmark in Supabase, preserving manual tags/categories
     const finalStatus = aiResult.insufficient_content ? 'insufficient_content' : 'completed';
 
+    const cleanWorkerTitle = metadata.title && !metadata.title.startsWith('http')
+      ? metadata.title
+      : (aiResult.topic && !aiResult.topic.startsWith('http') ? aiResult.topic : undefined);
+
     await supabase
       .from('bookmarks')
       .update({
-        title: metadata.title || undefined,
+        title: cleanWorkerTitle,
         description: metadata.description || undefined,
         extracted_text: metadata.extracted_text || undefined,
         category: hasCustomCategory ? currentBookmark.category : aiResult.category,

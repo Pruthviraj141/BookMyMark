@@ -32,6 +32,46 @@ export class BookmarksService {
     return 'website';
   }
 
+  static getDefaultTitle(platform: Platform, url: string): string {
+    switch (platform) {
+      case 'instagram':
+        return 'Instagram Reel';
+      case 'x':
+        return 'X Post';
+      case 'youtube':
+        return 'YouTube Video';
+      case 'reddit':
+        return 'Reddit Post';
+      case 'tiktok':
+        return 'TikTok Video';
+      default:
+        try {
+          return new URL(url).hostname.replace('www.', '');
+        } catch {
+          return 'Saved Bookmark';
+        }
+    }
+  }
+
+  static normalizeBookmarkRow(row: any): Bookmark {
+    if (!row) return row;
+    const rawUrl = row.original_url || row.url || '';
+    const platform: Platform = row.platform || 'website';
+    const isUrl = (s?: string | null) => Boolean(s && (s.startsWith('http://') || s.startsWith('https://') || s.includes('://')));
+    const cleanTitle = row.title && !isUrl(row.title)
+      ? row.title
+      : (row.shared_text && !isUrl(row.shared_text)
+          ? row.shared_text.slice(0, 80)
+          : BookmarksService.getDefaultTitle(platform, rawUrl));
+
+    return {
+      ...row,
+      url: rawUrl,
+      original_url: rawUrl,
+      title: cleanTitle
+    };
+  }
+
   /**
    * 1. CREATE BOOKMARK
    * - Saves to local storage immediately (0ms instant response).
@@ -53,6 +93,12 @@ export class BookmarksService {
     const normalized = this.normalizeUrl(data.url);
     const platform = this.detectPlatform(data.url);
 
+    const cleanInitialTitle = data.title && !data.title.startsWith('http')
+      ? data.title
+      : (data.sharedText && !data.sharedText.startsWith('http')
+          ? data.sharedText.slice(0, 80)
+          : this.getDefaultTitle(platform, data.url));
+
     const newBookmark: Bookmark = {
       id,
       user_id: userId,
@@ -60,7 +106,7 @@ export class BookmarksService {
       original_url: data.url,
       normalized_url: normalized,
       platform,
-      title: data.title || (data.sharedText ? data.sharedText.slice(0, 80) : data.url),
+      title: cleanInitialTitle,
       description: data.sharedText || null,
       shared_text: data.sharedText || null,
       thumbnail_url: null, // Critical: No image persistence
@@ -175,7 +221,7 @@ export class BookmarksService {
       const { data, count, error } = await query;
       if (error) throw error;
 
-      const remoteBookmarks = data || [];
+      const remoteBookmarks = (data || []).map((b) => this.normalizeBookmarkRow(b));
       // Cache fresh bookmarks locally if this was an unfiltered query
       if (!params?.category && (!params?.platform || params.platform === 'all')) {
         LocalDbService.saveBookmarks(userId, remoteBookmarks);
@@ -187,7 +233,7 @@ export class BookmarksService {
       };
     } catch (err) {
       console.warn('Supabase query failed, returning local cache:', err);
-      let cached = LocalDbService.getBookmarks(userId);
+      let cached = LocalDbService.getBookmarks(userId).map((b) => this.normalizeBookmarkRow(b));
       if (params?.category && params.category !== 'All') {
         cached = cached.filter((b) => b.category === params.category);
       }
@@ -211,10 +257,10 @@ export class BookmarksService {
 
     if (error || !data) {
       const cached = LocalDbService.getBookmarks(userId).find((b) => b.id === id);
-      return cached || null;
+      return cached ? this.normalizeBookmarkRow(cached) : null;
     }
 
-    return data;
+    return this.normalizeBookmarkRow(data);
   }
 
   /**
@@ -310,7 +356,7 @@ export class BookmarksService {
         .limit(40);
 
       if (!error && data && data.length > 0) {
-        return data;
+        return data.map((b) => this.normalizeBookmarkRow(b));
       }
 
       // Secondary fallback: ILIKE search for partial substrings
@@ -322,7 +368,7 @@ export class BookmarksService {
         .order('created_at', { ascending: false })
         .limit(40);
 
-      return fallbackData || data || [];
+      return (fallbackData || data || []).map((b) => this.normalizeBookmarkRow(b));
     } catch (err) {
       // Offline local search fallback
       const cached = LocalDbService.getBookmarks(userId);

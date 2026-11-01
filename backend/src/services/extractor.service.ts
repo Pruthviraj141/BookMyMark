@@ -533,11 +533,22 @@ export class ExtractorService {
       const html = await res.text();
       const $ = cheerio.load(html);
 
-      const title =
+      const rawTitle =
         $('meta[property="og:title"]').attr('content')?.trim() ||
         $('meta[name="twitter:title"]').attr('content')?.trim() ||
         $('title').first().text().trim() ||
         null;
+
+      const isUrl = (s?: string | null) => Boolean(s && (s.startsWith('http://') || s.startsWith('https://')));
+      const title = rawTitle && !isUrl(rawTitle)
+        ? rawTitle
+        : (() => {
+            try {
+              return new URL(url).hostname.replace('www.', '');
+            } catch {
+              return 'Saved Article';
+            }
+          })();
 
       const description =
         $('meta[property="og:description"]').attr('content')?.trim() ||

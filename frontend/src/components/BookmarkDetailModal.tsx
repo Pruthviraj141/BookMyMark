@@ -34,8 +34,24 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
 }) => {
   if (!isOpen || !bookmark) return null;
 
+  const isUrl = (s?: string | null) => Boolean(s && (s.startsWith('http://') || s.startsWith('https://') || s.includes('://')));
+  const targetUrl = bookmark.original_url || bookmark.url || '';
+
+  const getCleanTitle = () => {
+    if (bookmark.title && !isUrl(bookmark.title)) return bookmark.title;
+    if (bookmark.shared_text && !isUrl(bookmark.shared_text)) return bookmark.shared_text.slice(0, 80);
+    switch (bookmark.platform) {
+      case 'instagram': return 'Instagram Reel';
+      case 'x': return 'X Post';
+      case 'youtube': return 'YouTube Video';
+      case 'reddit': return 'Reddit Post';
+      case 'tiktok': return 'TikTok Video';
+      default: return 'Saved Bookmark';
+    }
+  };
+
   const [isEditing, setIsEditing] = useState(false);
-  const [title, setTitle] = useState(bookmark.title || '');
+  const [title, setTitle] = useState(bookmark.title && !isUrl(bookmark.title) ? bookmark.title : '');
   const [notes, setNotes] = useState(bookmark.notes || '');
   const [category, setCategory] = useState(bookmark.category || '');
   const [tagsInput, setTagsInput] = useState(bookmark.tags.join(', '));
@@ -46,20 +62,26 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
   const [previewImage, setPreviewImage] = useState<string | null>(bookmark.thumbnail_url || null);
 
   React.useEffect(() => {
+    setTitle(bookmark.title && !isUrl(bookmark.title) ? bookmark.title : '');
+    setNotes(bookmark.notes || '');
+    setCategory(bookmark.category || '');
+    setTagsInput(bookmark.tags.join(', '));
+    setIsEditing(false);
+    setError(null);
+
     if (bookmark.thumbnail_url) {
       setPreviewImage(bookmark.thumbnail_url);
       return;
     }
-    const targetUrl = bookmark.url || bookmark.original_url;
     if (targetUrl) {
       api.bookmarks.getLinkPreview(targetUrl).then((p) => {
         if (p?.imageUrl) setPreviewImage(p.imageUrl);
       }).catch(() => {});
     }
-  }, [bookmark]);
+  }, [bookmark, targetUrl]);
 
   const handleOpenOriginal = () => {
-    NativeSessionBridge.openAppUrl(bookmark.url);
+    NativeSessionBridge.openAppUrl(targetUrl);
   };
 
   const handleSaveEdit = async () => {
@@ -229,7 +251,7 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
             <div>
               <div className="flex items-start justify-between gap-3">
                 <h1 className="text-lg font-bold text-zinc-100 leading-snug">
-                  {bookmark.title || bookmark.shared_text || bookmark.url}
+                  {getCleanTitle()}
                 </h1>
                 <button
                   type="button"
@@ -309,7 +331,14 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
               <Calendar className="w-3.5 h-3.5" />
               <span>Saved {formatRelativeTime(bookmark.created_at)}</span>
             </div>
-            <span className="font-mono text-[11px] truncate max-w-[200px]">{bookmark.url}</span>
+            <button
+              type="button"
+              onClick={handleOpenOriginal}
+              className="font-mono text-[11px] text-zinc-400 hover:text-violet-400 hover:underline truncate max-w-[200px] text-left cursor-pointer"
+              title="Open link"
+            >
+              {targetUrl}
+            </button>
           </div>
         </div>
 
