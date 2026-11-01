@@ -164,9 +164,18 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
           </div>
         )}
         {bookmark.ai_status === 'failed' && (
-          <div className="absolute top-2.5 right-2.5 bg-black/75 backdrop-blur-md p-1 rounded-full text-red-400 border border-red-500/40">
-            <AlertCircle className="w-3 h-3" />
-          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              api.bookmarks.reprocess(bookmark.id).catch(() => {});
+            }}
+            title="AI classification failed. Tap to retry"
+            className="absolute top-2.5 right-2.5 bg-black/75 hover:bg-red-950/80 active:scale-95 backdrop-blur-md px-2 py-0.5 rounded-full flex items-center gap-1 text-[10px] text-red-400 border border-red-500/40 shadow-md cursor-pointer transition-all"
+          >
+            <AlertCircle className="w-2.5 h-2.5" />
+            <span>Retry AI</span>
+          </button>
         )}
       </div>
 

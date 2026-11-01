@@ -200,7 +200,8 @@ const requireAuth = async (c: any, next: any) => {
 // 5. POST /api/bookmarks/:id/enrich - AI Enrichment Endpoint (Only AI processing responsibility)
 const enrichSchema = z.object({
   sharedText: z.string().optional().nullable(),
-  title: z.string().optional().nullable()
+  title: z.string().optional().nullable(),
+  force: z.boolean().optional().nullable()
 }).optional();
 
 async function handleEnrich(c: any) {
@@ -211,17 +212,41 @@ async function handleEnrich(c: any) {
   const body = await c.req.json().catch(() => ({}));
   const parsed = enrichSchema?.safeParse(body);
   const sharedText = parsed && parsed.success ? parsed.data?.sharedText : undefined;
+  const isForce = body?.force === true || c.req.path.includes('/reprocess');
 
   // 1. Fetch bookmark under user's RLS context to confirm ownership
-  const { data: bookmark, error } = await supabase
+  let { data: bookmark, error } = await supabase
     .from('bookmarks')
     .select('*')
     .eq('id', bookmarkId)
     .eq('user_id', userId)
     .maybeSingle();
 
+  // Retry once with a brief backoff in case of read replica propagation delay
+  if (!bookmark) {
+    await new Promise((r) => setTimeout(r, 400));
+    const retry = await supabase
+      .from('bookmarks')
+      .select('*')
+      .eq('id', bookmarkId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    bookmark = retry.data;
+    error = retry.error;
+  }
+
   if (error || !bookmark) {
     return c.json({ error: 'Bookmark not found or unauthorized' }, 404);
+  }
+
+  // Prevent duplicate AI calls if already completed, unless explicitly forced
+  if (bookmark.ai_status === 'completed' && !isForce) {
+    return c.json({
+      success: true,
+      message: 'Bookmark already enriched',
+      bookmarkId: bookmark.id,
+      status: 'completed'
+    }, 200);
   }
 
   // 2. Return clear accepted response immediately
@@ -238,7 +263,8 @@ async function handleEnrich(c: any) {
       bookmark.original_url,
       sharedText || bookmark.shared_text,
       adminClient,
-      c.env
+      c.env,
+      isForce
     )
   );
 
@@ -250,26 +276,31 @@ async function handleEnrich(c: any) {
 }
 
 app.post('/api/bookmarks/:id/enrich', requireAuth, handleEnrich);
-// Backward compatibility alias for any existing caller
+// Backward compatibility alias for reprocess action
 app.post('/api/bookmarks/:id/reprocess', requireAuth, handleEnrich);
 
-// Helper for background text enrichment (No image storage, text-only Groq, 160 max tokens)
+// Helper for background text enrichment (No image storage, text-only Groq)
 async function enrichBookmark(
   bookmarkId: string,
   userId: string,
   url: string,
   sharedText: string | null | undefined,
   supabase: SupabaseClient,
-  env: Env
+  env: Env,
+  force: boolean = false
 ) {
   try {
-    // 1. Mark as processing and check for existing manual edits
+    // 1. Fetch current bookmark state and check for existing manual edits
     const { data: currentBookmark } = await supabase
       .from('bookmarks')
-      .select('category, tags')
+      .select('category, tags, ai_status')
       .eq('id', bookmarkId)
       .eq('user_id', userId)
       .maybeSingle();
+
+    if (currentBookmark?.ai_status === 'completed' && !force) {
+      return;
+    }
 
     const hasCustomCategory =
       currentBookmark?.category &&
@@ -278,9 +309,10 @@ async function enrichBookmark(
     const hasCustomTags =
       Array.isArray(currentBookmark?.tags) && currentBookmark.tags.length > 0;
 
+    // Transition state to processing
     await supabase
       .from('bookmarks')
-      .update({ ai_status: 'processing' })
+      .update({ ai_status: 'processing', updated_at: new Date().toISOString() })
       .eq('id', bookmarkId)
       .eq('user_id', userId);
 
@@ -301,7 +333,9 @@ async function enrichBookmark(
       env.GROQ_MODEL
     );
 
-    // 4. Update bookmark in Supabase, preserving any manual tags/categories
+    // 4. Update bookmark in Supabase, preserving manual tags/categories
+    const finalStatus = aiResult.insufficient_content ? 'insufficient_content' : 'completed';
+
     await supabase
       .from('bookmarks')
       .update({
@@ -312,7 +346,7 @@ async function enrichBookmark(
         tags: hasCustomTags ? currentBookmark.tags : aiResult.tags,
         content_type: aiResult.content_type,
         summary: aiResult.summary,
-        ai_status: aiResult.insufficient_content ? 'insufficient_content' : 'completed',
+        ai_status: finalStatus,
         ai_confidence: aiResult.confidence,
         updated_at: new Date().toISOString()
       })
@@ -321,10 +355,12 @@ async function enrichBookmark(
   } catch (err: any) {
     console.error(`Enrichment failed for ${bookmarkId}:`, err?.message || err);
     try {
+      const sanitizedMsg = (err?.message || 'Classification unavailable').slice(0, 80);
       await supabase
         .from('bookmarks')
         .update({
           ai_status: 'failed',
+          ai_evidence: sanitizedMsg,
           updated_at: new Date().toISOString()
         })
         .eq('id', bookmarkId)

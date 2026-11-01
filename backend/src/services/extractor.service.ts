@@ -43,7 +43,7 @@ export class ExtractorService {
 
     // 2. Platform-specific resolvers
     if (platform === 'youtube') {
-      const ytResult = await this.resolveYouTube(targetUrl);
+      const ytResult = await this.resolveYouTube(targetUrl, sharedText);
       if (ytResult) return { ...ytResult, platform };
     }
 
@@ -63,21 +63,28 @@ export class ExtractorService {
   }
 
   /**
-   * Resolves YouTube videos via oEmbed & video ID thumbnail
+   * Resolves YouTube videos via oEmbed & fast HTML metadata (title, first 500-800 chars of description, keywords).
+   * Fast, lightweight: NO full video transcripts, NO audio extraction, NO video downloading.
    */
-  private static async resolveYouTube(url: string): Promise<EnrichedMetadata | null> {
+  private static async resolveYouTube(
+    url: string,
+    sharedText?: string | null
+  ): Promise<EnrichedMetadata | null> {
     const videoId = PlatformService.extractYouTubeVideoId(url);
     if (!videoId) return null;
 
     let title: string | null = null;
     let author: string | null = null;
+    let description: string | null = null;
+    let keywords: string | null = null;
     let thumbnailUrl: string | null = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
+    // 1. Fast oEmbed retrieval for official title and creator/channel name
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
       const res = await fetch(oembedUrl, {
         headers: { 'User-Agent': this.BROWSER_UA },
-        signal: AbortSignal.timeout(4000)
+        signal: AbortSignal.timeout(3000)
       });
       if (res.ok) {
         const data: any = await res.json();
@@ -91,14 +98,57 @@ export class ExtractorService {
       // Keep default thumbnail
     }
 
+    // 2. Fast HTML meta tag extraction for description (first 500-800 chars) and keywords
+    try {
+      const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const pageRes = await fetch(watchUrl, {
+        headers: {
+          'User-Agent': this.BROWSER_UA,
+          'Accept-Language': 'en-US,en;q=0.9'
+        },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (pageRes.ok) {
+        const html = await pageRes.text();
+        const $ = cheerio.load(html);
+        if (!title) {
+          title = $('meta[name="title"]').attr('content') || $('meta[property="og:title"]').attr('content') || null;
+        }
+        const descMeta =
+          $('meta[name="description"]').attr('content') ||
+          $('meta[property="og:description"]').attr('content') ||
+          $('meta[name="twitter:description"]').attr('content');
+        if (descMeta && descMeta.trim()) {
+          // Truncate to first 600 meaningful characters
+          description = descMeta.trim().slice(0, 600);
+        }
+        const kwMeta = $('meta[name="keywords"]').attr('content');
+        if (kwMeta && kwMeta.trim()) {
+          keywords = kwMeta.trim().slice(0, 300);
+        }
+      }
+    } catch {
+      // Fast fallback to title / oembed
+    }
+
+    const textParts = [
+      title ? `Video Title: ${title}` : null,
+      author ? `Channel/Creator: ${author}` : null,
+      description ? `Description: ${description}` : null,
+      keywords ? `Keywords: ${keywords}` : null,
+      sharedText ? `Shared Note: ${sharedText}` : null
+    ].filter(Boolean);
+
+    const fullExtractedText = textParts.join('\n\n') || (title ? `${title} (YouTube)` : 'YouTube Video');
+
     return {
-      title,
-      description: null,
+      title: title || 'YouTube Video',
+      description: description || sharedText || null,
       thumbnail_url: thumbnailUrl,
       cover_source: 'youtube_oembed',
       cover_status: 'ready',
       author_name: author,
-      extracted_text: title ? `YouTube video by ${author || 'creator'}: ${title}` : null,
+      extracted_text: fullExtractedText,
       platform: 'youtube'
     };
   }
@@ -294,7 +344,8 @@ export class ExtractorService {
 
     let title: string | null = null;
     let description: string | null = null;
-    let thumbnailUrl: string | null = null;
+    let actualMediaUrl: string | null = null;
+    let profileImageUrl: string | null = null;
     let author: string | null = null;
 
     if (statusId) {
@@ -318,17 +369,21 @@ export class ExtractorService {
             title = description.slice(0, 100);
           }
 
-          // Prioritize actual tweet media: photos, video poster, or summary large image card
-          // STRICT RULE: Never use user avatar (user.profile_image_url_https) or twitter logo
+          // Author profile picture (convert to high-res 400x400)
+          if (data.user?.profile_image_url_https) {
+            profileImageUrl = data.user.profile_image_url_https.replace('_normal.', '_400x400.');
+          }
+
+          // Check for actual tweet media (photos, video poster, or large summary card)
           if (Array.isArray(data.photos) && data.photos.length > 0 && data.photos[0].url) {
-            thumbnailUrl = data.photos[0].url;
+            actualMediaUrl = data.photos[0].url;
           } else if (Array.isArray(data.mediaDetails) && data.mediaDetails.length > 0 && data.mediaDetails[0].media_url_https) {
-            thumbnailUrl = data.mediaDetails[0].media_url_https;
+            actualMediaUrl = data.mediaDetails[0].media_url_https;
           } else if (data.video?.poster) {
-            thumbnailUrl = data.video.poster;
+            actualMediaUrl = data.video.poster;
           } else if (data.card?.binding_values) {
             const bv = data.card.binding_values;
-            thumbnailUrl =
+            actualMediaUrl =
               bv.photo_image_full_size_large?.image_value?.url ||
               bv.thumbnail_image_large?.image_value?.url ||
               bv.thumbnail_image_original?.image_value?.url ||
@@ -341,7 +396,7 @@ export class ExtractorService {
       }
 
       // 2. Method B: FxTwitter API fallback
-      if (!thumbnailUrl || !description) {
+      if ((!actualMediaUrl && !profileImageUrl) || !description) {
         try {
           const fxtwitterUrl = `https://api.fxtwitter.com/status/${statusId}`;
           const fxRes = await fetch(fxtwitterUrl, {
@@ -355,9 +410,13 @@ export class ExtractorService {
               if (!author && fxData.tweet.author) author = fxData.tweet.author.name || null;
               if (!title && description) title = description.slice(0, 100);
 
-              if (!thumbnailUrl) {
+              if (!profileImageUrl && fxData.tweet.author?.avatar_url) {
+                profileImageUrl = fxData.tweet.author.avatar_url;
+              }
+
+              if (!actualMediaUrl) {
                 const media = fxData.tweet.media;
-                thumbnailUrl =
+                actualMediaUrl =
                   media?.photos?.[0]?.url ||
                   media?.videos?.[0]?.thumbnail_url ||
                   media?.mosaic?.url ||
@@ -394,25 +453,39 @@ export class ExtractorService {
       }
     }
 
-    // Reject profile images and default logo
-    if (thumbnailUrl) {
-      if (
-        thumbnailUrl.includes('profile_images') ||
-        thumbnailUrl.includes('default-og') ||
-        thumbnailUrl.includes('abs.twimg.com')
-      ) {
-        thumbnailUrl = null;
-      }
+    // Filter out generic default placeholder avatars
+    if (profileImageUrl && (profileImageUrl.includes('default_profile') || profileImageUrl.includes('default-og'))) {
+      profileImageUrl = null;
     }
+
+    // Image selection priority:
+    // 1. Actual tweet media image
+    // 2. Author profile picture as fallback
+    // 3. Existing neutral X fallback (null)
+    let selectedImage: string | null = null;
+    let coverSource: string | null = null;
+
+    if (actualMediaUrl && !actualMediaUrl.includes('profile_images')) {
+      selectedImage = actualMediaUrl;
+      coverSource = 'x_media';
+    } else if (profileImageUrl) {
+      selectedImage = profileImageUrl;
+      coverSource = 'x_profile';
+    }
+
+    const fullExtractedText = [
+      author ? `Tweet by ${author}` : null,
+      description
+    ].filter(Boolean).join('\n\n') || title || 'X Post';
 
     return {
       title: title || (author ? `Post by ${author}` : 'X Post'),
       description,
-      thumbnail_url: thumbnailUrl,
-      cover_source: thumbnailUrl ? 'x_media' : null,
-      cover_status: thumbnailUrl ? 'ready' : 'failed',
+      thumbnail_url: selectedImage,
+      cover_source: coverSource,
+      cover_status: selectedImage ? 'ready' : 'failed',
       author_name: author,
-      extracted_text: description || title || null,
+      extracted_text: fullExtractedText,
       platform: 'x'
     };
   }

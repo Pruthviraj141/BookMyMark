@@ -120,7 +120,7 @@ export const api = {
     // 7. Reprocess / Enrich via Cloudflare Worker
     reprocess: async (id: string): Promise<{ success: boolean }> => {
       const { token } = await getCurrentSession();
-      const res = await EnrichmentService.triggerEnrichment(id, token);
+      const res = await EnrichmentService.triggerEnrichment(id, token, undefined, true);
       return { success: res.success };
     },
 

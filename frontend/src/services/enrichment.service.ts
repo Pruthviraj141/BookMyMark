@@ -14,7 +14,8 @@ export class EnrichmentService {
   static async triggerEnrichment(
     bookmarkId: string,
     token: string,
-    sharedText?: string | null
+    sharedText?: string | null,
+    force: boolean = false
   ): Promise<EnrichmentResponse> {
     try {
       const baseUrl = getApiBaseUrl();
@@ -24,7 +25,7 @@ export class EnrichmentService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ sharedText }),
+        body: JSON.stringify({ sharedText, force }),
         signal: AbortSignal.timeout(8000)
       });
 

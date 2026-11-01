@@ -99,24 +99,25 @@ export class GroqClassifierService {
       };
     }
 
-    const systemPrompt = `You are an expert JSON classifier for personal bookmarks in SAVR.
-Analyze the content evidence (including title, captions, hashtags, and descriptions) and return a valid JSON object matching this exact schema:
+    const systemPrompt = `You are a fast, expert JSON classifier for personal bookmarks in SAVR. Think concisely.
+Analyze the content evidence (including title, creator, captions, hashtags, descriptions, and keywords) and return a valid JSON object matching this exact schema:
 {
-  "category": "Knowledge | Programming | Technology | Funny | Fitness | Entertainment | Lifestyle | Travel | Motivation | News | Other",
-  "topic": "string (specific topic e.g. Quantum Physics, React 19, Boxing, Standup Comedy)",
+  "category": "Knowledge | Programming | Technology | Funny | Fitness | Entertainment | Lifestyle | Travel | Motivation | News | Inspiration | Education | Other",
+  "topic": "string (specific subject/topic e.g. Boxing, React 19, Quantum Physics, Roman History)",
   "tags": ["3 to 5 string tags without #"],
-  "content_type": "reel | tweet | video | article | general",
+  "content_type": "reel | tweet | video | article | educational | general",
   "summary": "1 concise sentence summary of the subject",
   "confidence": 0.9,
   "insufficient_content": false
 }
-CRITICAL:
-1. Always identify SPECIFIC topics (e.g. Boxing, React 19, Quantum Physics, Comedy Skit) rather than repeating generic category names.
-2. Extract any meaningful hashtags into the "tags" array without the '#' prefix.
-3. Keep tags concise (3 to 5 tags, 1-2 words each).
-4. Do not output markdown backticks. Output pure JSON object only.`;
+CRITICAL RULES:
+1. Always identify SPECIFIC topics (e.g. Boxing, React 19, Quantum Physics, Standup Comedy, Roman Empire) rather than generic category names.
+2. Infer topic and category directly from the title, description, and keywords. A clear title or shared note is sufficient evidence for classification.
+3. Extract 3 to 5 specific tags (1-2 words each, without '#').
+4. Only set insufficient_content: true if literally no usable text or subject can be identified.
+5. Output pure JSON object only. No markdown formatting.`;
 
-    const userPrompt = `Content evidence:\n${nonUrlText.slice(0, 1000)}`;
+    const userPrompt = `Content evidence:\n${nonUrlText.slice(0, 1200)}`;
 
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -134,14 +135,14 @@ CRITICAL:
           ],
           response_format: { type: 'json_object' },
           temperature: 0.1,
-          max_tokens: 350
+          max_tokens: 800
         }),
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(10000)
       });
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        throw new Error(`Groq HTTP ${response.status}: ${errorText.slice(0, 150)}`);
+        throw new Error(`Groq HTTP ${response.status}: ${errorText.slice(0, 100)}`);
       }
 
       const json: any = await response.json();
@@ -186,15 +187,8 @@ CRITICAL:
       return result;
     } catch (err: any) {
       console.error('Groq classification failed:', err?.message || err);
-      return {
-        category: 'Other',
-        topic: null,
-        tags: [],
-        content_type: 'general',
-        summary: 'Classification could not be completed.',
-        confidence: 0,
-        insufficient_content: true
-      };
+      // Re-throw so worker marks ai_status: 'failed' for safe retry rather than false insufficient_content
+      throw err;
     }
   }
 }
