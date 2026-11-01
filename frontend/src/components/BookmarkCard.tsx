@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { PlatformBadge } from './PlatformBadge.js';
 import { formatRelativeTime } from '../utils/date.js';
-import { Sparkles, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
 import { api, type LinkPreviewData } from '../services/api.js';
+import { NativeSessionBridge } from '../services/nativeBridge.js';
 import type { Bookmark } from '../types/index.js';
 
 // In-memory preview cache for the current session (never saved to database)
@@ -108,9 +109,17 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
             src={activeImageUrl}
             alt={displayTitle || 'Bookmark preview'}
             loading="lazy"
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
             onError={() => setImageError(true)}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
+        ) : !preview && isNearViewport ? (
+          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-[#13151f] animate-pulse relative">
+            <PlatformBadge platform={bookmark.platform} showLabel={false} className="scale-110 mb-2 opacity-60" />
+            <div className="w-3/4 h-3 bg-zinc-800 rounded-md mb-2"></div>
+            <div className="w-1/2 h-2.5 bg-zinc-800/60 rounded-md"></div>
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-[#1a1c28] to-[#0f1017] relative">
             <PlatformBadge platform={bookmark.platform} showLabel={false} className="scale-125 mb-2 shadow-md" />
@@ -127,6 +136,19 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
         <div className="absolute top-2.5 left-2.5 z-10">
           <PlatformBadge platform={bookmark.platform} />
         </div>
+
+        {/* Quick Open in Native App Action */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            NativeSessionBridge.openAppUrl(targetUrl);
+          }}
+          title="Open in native app"
+          className="absolute bottom-2.5 right-2.5 z-20 p-2 rounded-xl bg-black/65 hover:bg-violet-600 active:scale-95 text-zinc-300 hover:text-white backdrop-blur-md border border-white/10 shadow-lg transition-all"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </button>
 
         {/* AI processing status indicator */}
         {bookmark.ai_status === 'processing' && (

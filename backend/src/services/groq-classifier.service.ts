@@ -64,16 +64,19 @@ export class GroqClassifierService {
     // Strip URLs and tracking noise
     const nonUrlText = combinedText.replace(/https?:\/\/[^\s]+/gi, '').trim();
 
-    // Insufficient evidence check: do not hallucinate or guess from URL alone
-    if (!nonUrlText || nonUrlText.length < 15) {
+    // If literally no text could be gathered, return a sensible default without marking failure
+    if (!nonUrlText || nonUrlText.length < 3) {
+      const defaultTag = context.platform
+        ? context.platform.charAt(0).toUpperCase() + context.platform.slice(1)
+        : 'Bookmark';
       return {
         category: 'Other',
-        topic: null,
-        tags: [],
-        content_type: 'general',
-        summary: 'Insufficient content provided for AI classification.',
-        confidence: 0,
-        insufficient_content: true
+        topic: 'Uncategorized',
+        tags: [defaultTag],
+        content_type: context.platform === 'instagram' ? 'reel' : 'general',
+        summary: `Saved ${context.platform || 'link'}`,
+        confidence: 0.5,
+        insufficient_content: false
       };
     }
 
@@ -87,31 +90,31 @@ export class GroqClassifierService {
     if (!groqApiKey) {
       return {
         category: 'Other',
-        topic: null,
-        tags: [],
+        topic: 'Uncategorized',
+        tags: ['Bookmark'],
         content_type: 'general',
-        summary: 'Groq API key not configured.',
-        confidence: 0,
-        insufficient_content: true
+        summary: 'Saved bookmark (Groq API key not set).',
+        confidence: 0.5,
+        insufficient_content: false
       };
     }
 
-    const systemPrompt = `You are a high-speed, token-efficient text classifier for SAVR personal bookmarks.
-Analyze the provided text and output strict JSON with NO Markdown or explanation.
-Allowed Categories: ${VALID_CATEGORIES.join(', ')}.
-
-Output JSON:
+    const systemPrompt = `You are an expert JSON classifier for personal bookmarks in SAVR.
+Analyze the content evidence (including title, captions, hashtags, and descriptions) and return a valid JSON object matching this exact schema:
 {
-  "category": "one of the allowed categories",
-  "topic": "specific topic name",
-  "tags": ["3 to 5 concise topic tags"],
-  "content_type": "short descriptor e.g. educational, reel, news, tutorial",
-  "summary": "1 concise sentence summary of what this content is about",
-  "confidence": 0.0 to 1.0,
+  "category": "Knowledge | Programming | Technology | Funny | Fitness | Entertainment | Lifestyle | Travel | Motivation | News | Other",
+  "topic": "string (specific topic e.g. Quantum Physics, React 19, Boxing, Standup Comedy)",
+  "tags": ["3 to 5 string tags without #"],
+  "content_type": "reel | tweet | video | article | general",
+  "summary": "1 concise sentence summary of the subject",
+  "confidence": 0.9,
   "insufficient_content": false
 }
-
-If the text contains no meaningful subject, return {"insufficient_content": true, "category": "Other", "tags": [], "summary": "Insufficient content", "confidence": 0}`;
+CRITICAL:
+1. Always identify SPECIFIC topics (e.g. Boxing, React 19, Quantum Physics, Comedy Skit) rather than repeating generic category names.
+2. Extract any meaningful hashtags into the "tags" array without the '#' prefix.
+3. Keep tags concise (3 to 5 tags, 1-2 words each).
+4. Do not output markdown backticks. Output pure JSON object only.`;
 
     const userPrompt = `Content evidence:\n${nonUrlText.slice(0, 1000)}`;
 
@@ -131,7 +134,7 @@ If the text contains no meaningful subject, return {"insufficient_content": true
           ],
           response_format: { type: 'json_object' },
           temperature: 0.1,
-          max_tokens: 160
+          max_tokens: 350
         }),
         signal: AbortSignal.timeout(8000)
       });

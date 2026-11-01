@@ -1,7 +1,9 @@
 package com.mybookmark.app
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -115,5 +117,71 @@ class NativeBridgePlugin : Plugin() {
     fun clearPendingShares(call: PluginCall) {
         getPrefs(context).edit().remove(KEY_PENDING_SHARES).apply()
         call.resolve()
+    }
+
+    @PluginMethod
+    fun openAppUrl(call: PluginCall) {
+        val rawUrl = call.getString("url")
+        if (rawUrl.isNullOrBlank()) {
+            call.reject("Must provide url")
+            return
+        }
+
+        val uri = Uri.parse(rawUrl.trim())
+        val host = uri.host?.lowercase() ?: ""
+        val context = this.context
+
+        // Determine target application package based on detected platform
+        val targetPackage = when {
+            host.contains("instagram.com") || host.contains("instagr.am") -> "com.instagram.android"
+            host.contains("twitter.com") || host.contains("x.com") || host.contains("t.co") -> "com.twitter.android"
+            host.contains("youtube.com") || host.contains("youtu.be") -> "com.google.android.youtube"
+            host.contains("reddit.com") || host.contains("redd.it") -> "com.reddit.frontpage"
+            host.contains("tiktok.com") -> "com.zhiliaoapp.musically"
+            else -> null
+        }
+
+        var openedInTargetApp = false
+
+        if (targetPackage != null) {
+            try {
+                val pm = context.packageManager
+                val isInstalled = try {
+                    pm.getPackageInfo(targetPackage, 0)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (isInstalled) {
+                    val appIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        setPackage(targetPackage)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(appIntent)
+                    openedInTargetApp = true
+                }
+            } catch (_: Exception) {
+                openedInTargetApp = false
+            }
+        }
+
+        // Fallback: Default system browser (no embedded webview)
+        if (!openedInTargetApp) {
+            try {
+                val browserIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(browserIntent)
+            } catch (e: Exception) {
+                call.reject("Could not open URL: ${e.message}")
+                return
+            }
+        }
+
+        val ret = JSObject()
+        ret.put("success", true)
+        ret.put("openedInTargetApp", openedInTargetApp)
+        call.resolve(ret)
     }
 }

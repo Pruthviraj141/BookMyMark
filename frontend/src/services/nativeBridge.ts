@@ -15,6 +15,7 @@ export interface NativeBridgePlugin {
   getConnectionConfiguration(): Promise<{ token: string | null; baseUrl: string | null; supabaseUrl: string | null }>;
   getPendingShares(): Promise<{ items: PendingShareItem[] }>;
   clearPendingShares(): Promise<void>;
+  openAppUrl(options: { url: string }): Promise<{ success: boolean; openedInTargetApp: boolean }>;
 }
 
 // Register native plugin for Android
@@ -87,5 +88,28 @@ export class NativeSessionBridge {
       }
     }
     localStorage.removeItem('mybookmark_pending_shares');
+  }
+
+  /**
+   * Opens URL directly in installed native app (Instagram, X, YouTube, Reddit, TikTok)
+   * with graceful fallback to default browser (no embedded webview).
+   */
+  static async openAppUrl(url: string | null | undefined): Promise<void> {
+    if (!url || !url.trim()) return;
+    const cleanUrl = url.trim();
+
+    if (this.isNative()) {
+      try {
+        await NativeBridge.openAppUrl({ url: cleanUrl });
+        return;
+      } catch (e) {
+        console.warn('NativeBridge openAppUrl failed, falling back to browser window:', e);
+      }
+    }
+
+    // Web fallback
+    if (typeof window !== 'undefined') {
+      window.open(cleanUrl, '_blank', 'noopener,noreferrer');
+    }
   }
 }

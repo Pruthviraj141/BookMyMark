@@ -263,7 +263,21 @@ async function enrichBookmark(
   env: Env
 ) {
   try {
-    // 1. Mark as processing
+    // 1. Mark as processing and check for existing manual edits
+    const { data: currentBookmark } = await supabase
+      .from('bookmarks')
+      .select('category, tags')
+      .eq('id', bookmarkId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const hasCustomCategory =
+      currentBookmark?.category &&
+      currentBookmark.category !== 'Other' &&
+      currentBookmark.category !== 'Uncategorized';
+    const hasCustomTags =
+      Array.isArray(currentBookmark?.tags) && currentBookmark.tags.length > 0;
+
     await supabase
       .from('bookmarks')
       .update({ ai_status: 'processing' })
@@ -287,15 +301,15 @@ async function enrichBookmark(
       env.GROQ_MODEL
     );
 
-    // 4. Update bookmark in Supabase WITHOUT modifying image fields (thumbnail_url stays null)
+    // 4. Update bookmark in Supabase, preserving any manual tags/categories
     await supabase
       .from('bookmarks')
       .update({
         title: metadata.title || undefined,
         description: metadata.description || undefined,
         extracted_text: metadata.extracted_text || undefined,
-        category: aiResult.category,
-        tags: aiResult.tags,
+        category: hasCustomCategory ? currentBookmark.category : aiResult.category,
+        tags: hasCustomTags ? currentBookmark.tags : aiResult.tags,
         content_type: aiResult.content_type,
         summary: aiResult.summary,
         ai_status: aiResult.insufficient_content ? 'insufficient_content' : 'completed',

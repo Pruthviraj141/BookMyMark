@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { PlatformBadge } from './PlatformBadge.js';
 import { api } from '../services/api.js';
+import { NativeSessionBridge } from '../services/nativeBridge.js';
 import { formatRelativeTime } from '../utils/date.js';
 import type { Bookmark } from '../types/index.js';
 
@@ -58,7 +59,7 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
   }, [bookmark]);
 
   const handleOpenOriginal = () => {
-    window.open(bookmark.url, '_blank', 'noopener,noreferrer');
+    NativeSessionBridge.openAppUrl(bookmark.url);
   };
 
   const handleSaveEdit = async () => {

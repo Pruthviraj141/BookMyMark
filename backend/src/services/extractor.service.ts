@@ -48,7 +48,7 @@ export class ExtractorService {
     }
 
     if (platform === 'instagram') {
-      const igResult = await this.resolveInstagram(targetUrl);
+      const igResult = await this.resolveInstagram(targetUrl, sharedText);
       if (igResult) return { ...igResult, platform };
     }
 
@@ -104,90 +104,189 @@ export class ExtractorService {
   }
 
   /**
-   * Resolves Instagram Posts and Reels via official embed page & oEmbed
+   * Resolves Instagram Posts and Reels via official embed page, OpenGraph & oEmbed
    */
-  private static async resolveInstagram(url: string): Promise<EnrichedMetadata | null> {
-    const match = url.match(/\/(reel|reels|p)\/([a-zA-Z0-9_-]+)/i);
+  private static async resolveInstagram(
+    url: string,
+    sharedText?: string | null
+  ): Promise<EnrichedMetadata | null> {
+    const match = url.match(/\/(reel|reels|p|tv|share\/reel)\/([a-zA-Z0-9_-]+)/i);
     const shortcode = match ? match[2] : null;
 
     let title: string | null = null;
     let description: string | null = null;
     let thumbnailUrl: string | null = null;
     let author: string | null = null;
+    const hashtags: string[] = [];
+
+    // 1. Extract any hashtags and context from incoming sharedText
+    if (sharedText && typeof sharedText === 'string') {
+      const tagsInShared = sharedText.match(/#([a-zA-Z0-9_]+)/g);
+      if (tagsInShared) {
+        tagsInShared.forEach((t) => hashtags.push(t.replace(/^#/, '')));
+      }
+      const cleanShared = sharedText.replace(/https?:\/\/[^\s]+/gi, '').trim();
+      if (cleanShared.length > 5) {
+        description = cleanShared;
+        title = cleanShared.slice(0, 100);
+      }
+    }
 
     if (shortcode) {
-      // Method A: Check public embed page (contains EmbeddedMediaImage & Caption)
-      try {
-        const embedUrl = `https://www.instagram.com/p/${shortcode}/embed/captioned/`;
-        const res = await fetch(embedUrl, {
-          headers: {
-            'User-Agent': this.BROWSER_UA,
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-          },
-          signal: AbortSignal.timeout(5000)
-        });
+      // 2. Method A: Instagram Embed Captioned endpoints
+      const embedUrls = [
+        `https://www.instagram.com/reel/${shortcode}/embed/captioned/`,
+        `https://www.instagram.com/p/${shortcode}/embed/captioned/`
+      ];
 
-        if (res.ok) {
-          const html = await res.text();
-          const $ = cheerio.load(html);
+      for (const embedUrl of embedUrls) {
+        if (thumbnailUrl && description) break;
+        try {
+          const res = await fetch(embedUrl, {
+            headers: {
+              'User-Agent': this.BROWSER_UA,
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9'
+            },
+            signal: AbortSignal.timeout(4000)
+          });
 
-          // EmbeddedMediaImage is Instagram's real post/reel thumbnail
-          const img = $('img.EmbeddedMediaImage').attr('src');
-          if (img && isValidHttpUrl(img)) {
-            thumbnailUrl = img;
+          if (res.ok) {
+            const html = await res.text();
+            const $ = cheerio.load(html);
+
+            // Thumbnail extraction
+            if (!thumbnailUrl) {
+              const img = $('img.EmbeddedMediaImage').attr('src') || $('img[class*="EmbeddedMediaImage"]').attr('src');
+              if (img && isValidHttpUrl(img) && !img.includes('rsrc.php')) {
+                thumbnailUrl = img;
+              } else {
+                const matchImg =
+                  html.match(/class=["\x27]EmbeddedMediaImage["\x27][^>]*src=["\x27]([^"\x27]+)["\x27]/i) ||
+                  html.match(/"display_url":"(https:\/\/[^"\\]+cdninstagram[^"\\]+)"/i);
+                if (matchImg && matchImg[1]) {
+                  const cleaned = matchImg[1].replace(/\\\//g, '/').replace(/&amp;/g, '&');
+                  if (isValidHttpUrl(cleaned) && !cleaned.includes('rsrc.php')) {
+                    thumbnailUrl = cleaned;
+                  }
+                }
+              }
+            }
+
+            // Caption extraction
+            if (!description) {
+              const caption = $('.Caption').text().trim() || $('div[class*="Caption"]').text().trim();
+              if (caption) {
+                description = caption;
+                title = caption.slice(0, 100);
+                const captionTags = caption.match(/#([a-zA-Z0-9_]+)/g);
+                if (captionTags) {
+                  captionTags.forEach((t) => hashtags.push(t.replace(/^#/, '')));
+                }
+              }
+            }
+
+            // Author extraction
+            if (!author) {
+              const authorEl = $('header .UsernameText').first().text().trim() || $('a[class*="Username"]').first().text().trim();
+              if (authorEl) {
+                author = authorEl.replace(/^@/, '');
+              }
+            }
           }
+        } catch {}
+      }
 
-          // Caption contains description & tags
-          const caption = $('.Caption').text().trim() || $('div[class*="Caption"]').text().trim();
-          if (caption) {
-            description = caption;
-            title = caption.slice(0, 100);
-          }
+      // 3. Method B: OpenGraph on canonical Reel URL with crawler User-Agent
+      if (!thumbnailUrl || !description) {
+        try {
+          const reelUrl = `https://www.instagram.com/reel/${shortcode}/`;
+          const ogRes = await fetch(reelUrl, {
+            headers: {
+              'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+              Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
+            },
+            signal: AbortSignal.timeout(4000)
+          });
 
-          // Author username
-          const authorEl = $('header .UsernameText').first().text().trim();
-          if (authorEl) {
-            author = authorEl;
+          if (ogRes.ok) {
+            const ogHtml = await ogRes.text();
+            const $ = cheerio.load(ogHtml);
+
+            if (!thumbnailUrl) {
+              const ogImg = $('meta[property="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content');
+              if (ogImg && isValidHttpUrl(ogImg) && !ogImg.includes('rsrc.php')) {
+                thumbnailUrl = ogImg;
+              }
+            }
+
+            if (!description) {
+              const ogDesc = $('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content');
+              if (ogDesc && ogDesc.trim().length > 0) {
+                description = ogDesc.trim();
+                title = ogDesc.trim().slice(0, 100);
+                const ogTags = ogDesc.match(/#([a-zA-Z0-9_]+)/g);
+                if (ogTags) {
+                  ogTags.forEach((t) => hashtags.push(t.replace(/^#/, '')));
+                }
+              }
+            }
+
+            if (!author) {
+              const ogTitle = $('meta[property="og:title"]').attr('content');
+              if (ogTitle) {
+                const authorMatch = ogTitle.match(/@([a-zA-Z0-9._]+)/);
+                if (authorMatch) author = authorMatch[1];
+              }
+            }
           }
-        }
-      } catch {
-        // Continue to fallback
+        } catch {}
+      }
+
+      // 4. Method C: Instagram public oEmbed fallback
+      if (!thumbnailUrl || !description) {
+        try {
+          const oembedUrl = `https://api.instagram.com/oembed/?url=${encodeURIComponent(url)}`;
+          const oembedRes = await fetch(oembedUrl, {
+            headers: { 'User-Agent': this.BROWSER_UA },
+            signal: AbortSignal.timeout(3000)
+          });
+          if (oembedRes.ok) {
+            const data: any = await oembedRes.json();
+            if (data.thumbnail_url && !thumbnailUrl) thumbnailUrl = data.thumbnail_url;
+            if (data.title && !description) {
+              description = data.title;
+              if (!title) title = data.title.slice(0, 100);
+            }
+            if (data.author_name && !author) author = data.author_name;
+          }
+        } catch {}
       }
     }
 
-    // Method B: Try Instagram oEmbed
-    if (!thumbnailUrl) {
-      try {
-        const oembedUrl = `https://api.instagram.com/oembed/?url=${encodeURIComponent(url)}`;
-        const res = await fetch(oembedUrl, {
-          headers: { 'User-Agent': this.BROWSER_UA },
-          signal: AbortSignal.timeout(4000)
-        });
-        if (res.ok) {
-          const data: any = await res.json();
-          if (data.thumbnail_url) thumbnailUrl = data.thumbnail_url;
-          if (data.title && !title) title = data.title;
-          if (data.author_name && !author) author = data.author_name;
-        }
-      } catch {
-        // Fallback
-      }
-    }
+    const uniqueHashtags = [...new Set(hashtags)];
+    const textParts = [
+      author ? `Instagram Reel by @${author}` : null,
+      description,
+      uniqueHashtags.length > 0 ? `Tags: ${uniqueHashtags.map((t) => `#${t}`).join(' ')}` : null
+    ].filter(Boolean);
+
+    const fullExtractedText = textParts.join('\n\n') || (title ? `${title} (Instagram)` : 'Instagram Reel');
 
     return {
-      title: title || (author ? `Instagram post by @${author}` : 'Instagram Reel'),
-      description,
+      title: title || (author ? `Instagram Reel by @${author}` : 'Instagram Reel'),
+      description: description || null,
       thumbnail_url: thumbnailUrl,
       cover_source: thumbnailUrl ? 'instagram_embed' : null,
       cover_status: thumbnailUrl ? 'ready' : 'failed',
       author_name: author,
-      extracted_text: description || (title ? `${title} (Instagram)` : null),
+      extracted_text: fullExtractedText,
       platform: 'instagram'
     };
   }
 
   /**
-   * Resolves X / Twitter posts via public preview API (FxTwitter/VxTwitter) and oEmbed
+   * Resolves X / Twitter posts via Syndication CDN, FxTwitter API and oEmbed
    */
   private static async resolveX(url: string): Promise<EnrichedMetadata | null> {
     const match = url.match(/status\/(\d+)/i);
@@ -199,55 +298,99 @@ export class ExtractorService {
     let author: string | null = null;
 
     if (statusId) {
-      // Method A: Query vxtwitter / fxtwitter API for post media & text
+      // 1. Method A: Twitter Syndication CDN with mathematical token (No auth required)
       try {
-        const apiUrl = `https://api.vxtwitter.com/status/${statusId}`;
-        const res = await fetch(apiUrl, {
-          headers: { 'User-Agent': this.BROWSER_UA },
-          signal: AbortSignal.timeout(5000)
+        const token = (parseFloat(statusId) / 1e15 * Math.PI).toString(36);
+        const syndicationUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${statusId}&token=${token}`;
+        const res = await fetch(syndicationUrl, {
+          headers: {
+            'User-Agent': this.BROWSER_UA,
+            Accept: 'application/json'
+          },
+          signal: AbortSignal.timeout(4000)
         });
 
         if (res.ok) {
           const data: any = await res.json();
           description = data.text || null;
-          author = data.user_screen_name || data.user_name || null;
-          title = description ? description.slice(0, 100) : (author ? `Post by @${author}` : null);
+          author = data.user?.name ? `${data.user.name} (@${data.user.screen_name || ''})` : null;
+          if (description) {
+            title = description.slice(0, 100);
+          }
 
-          // Select media image if available
-          if (Array.isArray(data.media_extended) && data.media_extended.length > 0) {
-            const media = data.media_extended[0];
-            thumbnailUrl = media.thumbnail_url || media.url || null;
-          } else if (Array.isArray(data.mediaURLs) && data.mediaURLs.length > 0) {
-            thumbnailUrl = data.mediaURLs[0];
+          // Prioritize actual tweet media: photos, video poster, or summary large image card
+          // STRICT RULE: Never use user avatar (user.profile_image_url_https) or twitter logo
+          if (Array.isArray(data.photos) && data.photos.length > 0 && data.photos[0].url) {
+            thumbnailUrl = data.photos[0].url;
+          } else if (Array.isArray(data.mediaDetails) && data.mediaDetails.length > 0 && data.mediaDetails[0].media_url_https) {
+            thumbnailUrl = data.mediaDetails[0].media_url_https;
+          } else if (data.video?.poster) {
+            thumbnailUrl = data.video.poster;
+          } else if (data.card?.binding_values) {
+            const bv = data.card.binding_values;
+            thumbnailUrl =
+              bv.photo_image_full_size_large?.image_value?.url ||
+              bv.thumbnail_image_large?.image_value?.url ||
+              bv.thumbnail_image_original?.image_value?.url ||
+              bv.photo_image_full_size?.image_value?.url ||
+              null;
           }
         }
       } catch {
-        // Fallback to oembed
+        // Fallback to FxTwitter
       }
-    }
 
-    // Method B: Official twitter publish oembed
-    if (!description || !author) {
-      try {
-        const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}`;
-        const res = await fetch(oembedUrl, {
-          headers: { 'User-Agent': this.BROWSER_UA },
-          signal: AbortSignal.timeout(4000)
-        });
-        if (res.ok) {
-          const data: any = await res.json();
-          if (data.author_name && !author) author = data.author_name;
-          if (data.html) {
-            const $ = cheerio.load(data.html);
-            const text = $('p').first().text().trim();
-            if (text && !description) {
-              description = text;
-              if (!title) title = text.slice(0, 100);
+      // 2. Method B: FxTwitter API fallback
+      if (!thumbnailUrl || !description) {
+        try {
+          const fxtwitterUrl = `https://api.fxtwitter.com/status/${statusId}`;
+          const fxRes = await fetch(fxtwitterUrl, {
+            headers: { 'User-Agent': this.BROWSER_UA },
+            signal: AbortSignal.timeout(4000)
+          });
+          if (fxRes.ok) {
+            const fxData: any = await fxRes.json();
+            if (fxData.tweet) {
+              if (!description) description = fxData.tweet.text || null;
+              if (!author && fxData.tweet.author) author = fxData.tweet.author.name || null;
+              if (!title && description) title = description.slice(0, 100);
+
+              if (!thumbnailUrl) {
+                const media = fxData.tweet.media;
+                thumbnailUrl =
+                  media?.photos?.[0]?.url ||
+                  media?.videos?.[0]?.thumbnail_url ||
+                  media?.mosaic?.url ||
+                  null;
+              }
             }
           }
+        } catch {
+          // Fallback to publish oembed
         }
-      } catch {
-        // Fallback
+      }
+
+      // 3. Method C: Official twitter publish oEmbed fallback
+      if (!description || !author) {
+        try {
+          const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}`;
+          const res = await fetch(oembedUrl, {
+            headers: { 'User-Agent': this.BROWSER_UA },
+            signal: AbortSignal.timeout(3000)
+          });
+          if (res.ok) {
+            const data: any = await res.json();
+            if (data.author_name && !author) author = data.author_name;
+            if (data.html && !description) {
+              const $ = cheerio.load(data.html);
+              const text = $('p').first().text().trim();
+              if (text) {
+                description = text;
+                if (!title) title = text.slice(0, 100);
+              }
+            }
+          }
+        } catch {}
       }
     }
 
@@ -263,7 +406,7 @@ export class ExtractorService {
     }
 
     return {
-      title: title || (author ? `Post by @${author}` : 'X Post'),
+      title: title || (author ? `Post by ${author}` : 'X Post'),
       description,
       thumbnail_url: thumbnailUrl,
       cover_source: thumbnailUrl ? 'x_media' : null,
