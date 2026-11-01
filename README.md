@@ -59,19 +59,16 @@ graph TD
 
 ```
 .
-├── .github/                      # GitHub Actions CI/CD workflows & issue templates
-│   ├── workflows/ci.yml          # Automated tests, build verification & security audits
-│   └── ISSUE_TEMPLATE/           # Standardized bug & feature request templates
-├── savr/
-│   ├── backend/                  # Node.js + Hono + SQLite Backend Service
-│   │   ├── src/                  # Controllers, services, repositories & middleware
-│   │   ├── tests/                # Vitest suite covering auth, bookmarks, AI & metadata
-│   │   └── API_CONTRACT.md       # Exhaustive endpoint documentation
-│   └── frontend/                 # React 19 + Vite + Capacitor Android Application
-│       ├── src/                  # Screens, components, hooks & state management
-│       └── android/              # Native Capacitor Android project
-├── phase1.md                     # Phase 1 architectural roadmap and specifications
-├── phase2.md                     # Phase 2 mobile integration and sync roadmap
+├── backend/                      # Node.js + Hono + SQLite Backend Service
+│   ├── src/                      # Controllers, services, repositories & middleware
+│   ├── tests/                    # Vitest suite covering auth, bookmarks, AI & metadata
+│   └── API_CONTRACT.md           # Exhaustive endpoint documentation
+├── frontend/                     # React 19 + Vite + Capacitor Android Application
+│   ├── src/                      # Screens, components, hooks & state management
+│   └── android/                  # Native Capacitor Android project
+├── .github/                      # GitHub issue templates
+├── phase1.md                     # Architectural roadmap and specifications
+├── phase2.md                     # Android integration and sync roadmap
 └── README.md                     # Project documentation
 ```
 
@@ -94,16 +91,16 @@ cd BookMyMark
 Copy the example environment configurations:
 ```bash
 # Backend configuration
-cp savr/backend/.env.example savr/backend/.env
+cp backend/.env.example backend/.env
 
 # Frontend configuration
-cp savr/frontend/.env.example savr/frontend/.env
+cp frontend/.env.example frontend/.env
 ```
-Update `savr/backend/.env` with your desired `JWT_SECRET` and optional `GROQ_API_KEY`.
+Update `backend/.env` with your desired `JWT_SECRET` and optional `GROQ_API_KEY`.
 
 ### 3. Backend Setup & Run
 ```bash
-cd savr/backend
+cd backend
 npm install
 npm run dev
 ```
@@ -125,7 +122,7 @@ BookMyMark features comprehensive unit and integration test coverage:
 
 ```bash
 # Run backend test suite
-cd savr/backend
+cd backend
 npm test
 ```
 
@@ -152,7 +149,7 @@ Tests validate:
 | `GET` | `/api/categories` | List user categories with counts | Yes |
 | `GET` | `/health` | Service health status | No |
 
-For comprehensive payload and response schemas, refer to [API_CONTRACT.md](file:///mnt/projects/SignVision/bookmymark/savr/backend/API_CONTRACT.md).
+For comprehensive payload and response schemas, refer to [API_CONTRACT.md](file:///mnt/projects/SignVision/bookmymark/backend/API_CONTRACT.md).
 
 ---
 

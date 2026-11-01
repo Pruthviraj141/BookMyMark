@@ -7,7 +7,7 @@
 ## 1. Project Structure
 
 ```
-savr/backend/
+backend/
 ├── API_CONTRACT.md               # Complete API specifications for Phase 2
 ├── README.md                     # Service documentation and setup instructions
 ├── .env                          # Local environment secrets (ignored by git)
@@ -16,7 +16,7 @@ savr/backend/
 ├── tsconfig.json                 # TypeScript compiler configuration
 ├── vitest.config.ts              # Vitest sequential test configuration
 ├── data/
-│   └── savr.db                   # SQLite database (persisted)
+│   └── bookmymark.db             # SQLite database (persisted)
 ├── src/
 │   ├── index.ts                  # Server entry point (@hono/node-server)
 │   ├── app.ts                    # Hono application setup and CORS
@@ -65,7 +65,7 @@ savr/backend/
 
 ## 2. Prerequisites & Installation Status
 
-Dependencies are installed in `savr/backend/` using Node.js v22.23.1 and npm 10.9.8.
+Dependencies are installed in `backend/` using Node.js v22.23.1 and npm 10.9.8.
 
 - Node version: `v22+`
 - Key packages installed: `hono`, `@hono/node-server`, `better-sqlite3`, `groq-sdk`, `cheerio`, `bcryptjs`, `zod`, `vitest`, `tsx`.
@@ -89,7 +89,7 @@ npm install
    - `JWT_SECRET`: Random secret string used for signing authentication tokens
    - `PORT`: `3000`
    - `HOST`: `0.0.0.0`
-   - `DATABASE_PATH`: `./data/savr.db`
+   - `DATABASE_PATH`: `./data/bookmymark.db`
 
 ### Finding your Fedora Local IP for Android Testing
 When testing on a physical Android device connected to the same Wi-Fi:

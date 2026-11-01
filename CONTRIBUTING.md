@@ -16,7 +16,7 @@ We are committed to providing a friendly, safe, and welcoming environment for al
    ```
 3. **Install dependencies** for both backend and frontend:
    ```bash
-   cd savr/backend && npm install
+   cd backend && npm install
    cd ../frontend && npm install
    ```
 
@@ -27,7 +27,7 @@ We are committed to providing a friendly, safe, and welcoming environment for al
 - **Security First**: Ensure zero credentials or API keys are committed. All metadata scraping must respect SSRF rules.
 - **Testing**: Run tests before submitting changes:
   ```bash
-  cd savr/backend
+  cd backend
   npm test
   ```
 
