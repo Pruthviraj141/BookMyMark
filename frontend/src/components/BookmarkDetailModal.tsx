@@ -12,7 +12,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { PlatformBadge } from './PlatformBadge.js';
-import { api } from '../services/api.js';
+import { api, getProxyImageUrl } from '../services/api.js';
 import { formatRelativeTime } from '../utils/date.js';
 import type { Bookmark } from '../types/index.js';
 
@@ -42,6 +42,20 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
   const [reprocessing, setReprocessing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(bookmark.thumbnail_url || null);
+
+  React.useEffect(() => {
+    if (bookmark.thumbnail_url) {
+      setPreviewImage(bookmark.thumbnail_url);
+      return;
+    }
+    const targetUrl = bookmark.url || bookmark.original_url;
+    if (targetUrl) {
+      api.bookmarks.getLinkPreview(targetUrl).then((p) => {
+        if (p?.imageUrl) setPreviewImage(p.imageUrl);
+      }).catch(() => {});
+    }
+  }, [bookmark]);
 
   const handleOpenOriginal = () => {
     window.open(bookmark.url, '_blank', 'noopener,noreferrer');
@@ -134,10 +148,10 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
           )}
 
           {/* Large Thumbnail */}
-          {bookmark.thumbnail_url && (
+          {previewImage && (
             <div className="relative w-full rounded-2xl overflow-hidden bg-black/40 border border-zinc-800 max-h-72 flex items-center justify-center">
               <img
-                src={bookmark.thumbnail_url}
+                src={previewImage}
                 alt={bookmark.title || 'Preview'}
                 className="w-full h-full max-h-72 object-contain"
               />

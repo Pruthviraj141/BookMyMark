@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, BookmarkPlus, Sparkles, AlertCircle } from 'lucide-react';
 import { MasonryFeed } from '../components/MasonryFeed.js';
 import { api } from '../services/api.js';
+import { NativeSessionBridge } from '../services/nativeBridge.js';
+import { useAuth } from '../context/AuthContext.js';
+import { supabase } from '../config/supabase.js';
+import { LocalDbService } from '../services/local-db.service.js';
 import type { Bookmark, Platform } from '../types/index.js';
 
 interface HomeScreenProps {
@@ -23,6 +27,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSelectBookmark,
   onOpenAddModal
 }) => {
+  const { user } = useAuth();
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -36,6 +41,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setError(null);
 
     try {
+      // 1. Process pending native shares if any
+      const pendingShares = await NativeSessionBridge.getPendingShares();
+      if (pendingShares.length > 0) {
+        for (const item of pendingShares) {
+          if (item.url) {
+            await api.bookmarks.create({
+              url: item.url,
+              sharedText: item.sharedText
+            }).catch(() => {});
+          }
+        }
+        await NativeSessionBridge.clearPendingShares();
+      }
+
+      // 2. Fetch fresh bookmarks (direct from Supabase / local-first)
       const activePlatformFilter = PLATFORM_FILTERS.find((p) => p.id === selectedPlatform)?.platform;
       const res = await api.bookmarks.list({
         platform: activePlatformFilter,
@@ -44,7 +64,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       });
       setBookmarks(res.bookmarks);
 
-      // Also refresh available categories
+      // 3. Refresh available categories
       const catRes = await api.bookmarks.getCategories();
       setCategories(catRes);
     } catch (err: any) {
@@ -59,19 +79,50 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     fetchBookmarks();
   }, [fetchBookmarks]);
 
-  // Poller for items still processing in background
+  // Realtime subscription for instant AI classification & bookmark updates
   useEffect(() => {
-    const hasUnfinished = bookmarks.some(
-      (b) => b.ai_status === 'pending' || b.ai_status === 'processing'
-    );
-    if (!hasUnfinished) return;
+    if (!user?.id) return;
 
-    const interval = setInterval(() => {
-      fetchBookmarks();
-    }, 3500);
+    const channelName = `bookmarks-user-${user.id}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'bookmarks',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as Bookmark;
+            setBookmarks((prev) =>
+              prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b))
+            );
+            LocalDbService.upsertBookmark(user.id, updated);
+          } else if (payload.eventType === 'INSERT') {
+            const created = payload.new as Bookmark;
+            setBookmarks((prev) => {
+              if (prev.some((b) => b.id === created.id)) return prev;
+              return [created, ...prev];
+            });
+            LocalDbService.upsertBookmark(user.id, created);
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id: string })?.id;
+            if (deletedId) {
+              setBookmarks((prev) => prev.filter((b) => b.id !== deletedId));
+              LocalDbService.removeBookmark(user.id, deletedId);
+            }
+          }
+        }
+      )
+      .subscribe();
 
-    return () => clearInterval(interval);
-  }, [bookmarks, fetchBookmarks]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   return (
     <div className="flex flex-col min-h-screen pb-24">
@@ -83,9 +134,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
           <div>
             <span className="text-base font-bold tracking-tight text-white block leading-none">
-              MyBookMark
+              SAVR
             </span>
-            <span className="text-[10px] text-zinc-400 font-medium">Visual Library</span>
+            <span className="text-[10px] text-zinc-400 font-medium">Smart Visual Library</span>
           </div>
         </div>
 

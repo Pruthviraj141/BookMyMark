@@ -1,14 +1,15 @@
-const STORAGE_KEY = 'mybookmark_api_base_url';
+const STORAGE_KEY = 'savr_api_base_url';
+export const DEFAULT_API_URL = 'https://savr-api.markyourday.workers.dev';
 
 export function getApiBaseUrl(): string {
   // 1. Check user-configured override in localStorage
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved && saved.trim()) {
     const clean = saved.trim().replace(/\/+$/, '');
-    if (clean.includes('localhost') || clean.includes('127.0.0.1') || clean.includes('10.0.2.2')) {
-      return 'http://192.168.1.11:3000';
+    // Ignore legacy local IPs
+    if (!clean.includes('192.168.') && !clean.includes('10.0.2.2')) {
+      return clean;
     }
-    return clean;
   }
 
   // 2. Check environment variable
@@ -17,20 +18,7 @@ export function getApiBaseUrl(): string {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
-  // 3. Sensible defaults based on runtime environment
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    // Android Emulator host loopback
-    if (hostname === '10.0.2.2') {
-      return 'http://10.0.2.2:3000';
-    }
-    // If accessed via LAN IP directly
-    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `http://${hostname}:3000`;
-    }
-  }
-
-  return 'http://192.168.1.11:3000';
+  return DEFAULT_API_URL;
 }
 
 export function setApiBaseUrl(url: string): void {

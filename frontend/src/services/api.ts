@@ -1,147 +1,100 @@
+import { supabase } from '../config/supabase.js';
 import { getApiBaseUrl } from '../config/api.config.js';
-import type { Bookmark, ApiResponse, User, CategoryCount, TagCount } from '../types/index.js';
+import { BookmarksService } from './bookmarks.service.js';
+import { PreviewService, type LinkPreviewData } from './preview.service.js';
+import { EnrichmentService } from './enrichment.service.js';
+import type { Bookmark, CategoryCount, TagCount } from '../types/index.js';
 
-class ApiError extends Error {
-  status: number;
-  data?: any;
-  constructor(message: string, status: number, data?: any) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.data = data;
-  }
-}
+export type { LinkPreviewData };
 
 export function getAuthToken(): string | null {
-  return localStorage.getItem('mybookmark_auth_token');
+  return localStorage.getItem('savr_auth_token') || localStorage.getItem('mybookmark_auth_token');
 }
 
 export function setAuthToken(token: string | null): void {
   if (token) {
+    localStorage.setItem('savr_auth_token', token);
     localStorage.setItem('mybookmark_auth_token', token);
   } else {
+    localStorage.removeItem('savr_auth_token');
     localStorage.removeItem('mybookmark_auth_token');
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const baseUrl = getApiBaseUrl();
-  const url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+/**
+ * Display external image URL directly without proxy or permanent storage.
+ */
+export function getProxyImageUrl(originalUrl: string | null | undefined): string | null {
+  if (!originalUrl) return null;
+  return originalUrl;
+}
 
-  const headers = new Headers(options.headers || {});
-  headers.set('Accept', 'application/json');
-
-  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
+/**
+ * Helper: Resolve current user and token directly from Supabase
+ */
+async function getCurrentSession(): Promise<{ userId: string; token: string }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) {
+    throw new Error('User not authenticated');
   }
-
-  const token = getAuthToken();
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      ...options,
-      headers
-    });
-  } catch (err: any) {
-    throw new ApiError(
-      `Unable to connect to backend at ${baseUrl}. Ensure backend is running and reachable on Wi-Fi.`,
-      0
-    );
-  }
-
-  let json: ApiResponse<T>;
-  try {
-    json = await response.json();
-  } catch {
-    throw new ApiError(`Unexpected response from server (HTTP ${response.status})`, response.status);
-  }
-
-  if (!response.ok || !json.success) {
-    throw new ApiError(json.error || json.message || 'Request failed', response.status, json.data);
-  }
-
-  return json.data as T;
+  return {
+    userId: session.user.id,
+    token: session.access_token
+  };
 }
 
 export const api = {
-  health: async (): Promise<{ status: string; app: string; timestamp: string }> => {
-    return request('/health');
-  },
-
-  auth: {
-    register: async (username: string, password: string): Promise<{ user: User; token: string }> => {
-      return request('/api/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({ username, password })
-      });
-    },
-
-    login: async (username: string, password: string): Promise<{ user: User; token: string }> => {
-      return request('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ username, password })
-      });
-    },
-
-    getMe: async (): Promise<{ user: User }> => {
-      return request('/api/auth/me');
-    },
-
-    logout: async (): Promise<void> => {
-      try {
-        await request('/api/auth/logout', { method: 'POST' });
-      } catch {
-        // ignore network error on logout
-      }
-    }
+  health: async (): Promise<{ status: string; service: string; time: string }> => {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/health`);
+    return res.json();
   },
 
   bookmarks: {
+    // 1. Direct Supabase Query
     list: async (params?: {
-      page?: number;
-      limit?: number;
-      platform?: string;
       category?: string;
-      tag?: string;
-      content_type?: string;
-      ai_status?: string;
-    }): Promise<{ bookmarks: Bookmark[]; total: number; page: number; limit: number }> => {
-      const searchParams = new URLSearchParams();
-      if (params) {
-        Object.entries(params).forEach(([key, val]) => {
-          if (val !== undefined && val !== null && val !== '') {
-            searchParams.set(key, String(val));
-          }
-        });
+      platform?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<{ bookmarks: Bookmark[]; total: number }> => {
+      const { userId } = await getCurrentSession();
+      if (params?.search && params.search.trim()) {
+        const results = await BookmarksService.searchBookmarks(userId, params.search.trim());
+        return { bookmarks: results, total: results.length };
       }
-      const qs = searchParams.toString();
-      return request(`/api/bookmarks${qs ? `?${qs}` : ''}`);
+      return BookmarksService.listBookmarks(userId, params);
     },
 
+    // 2. Direct Supabase Get
     get: async (id: string): Promise<Bookmark> => {
-      return request(`/api/bookmarks/${id}`);
+      const { userId } = await getCurrentSession();
+      const item = await BookmarksService.getBookmark(userId, id);
+      if (!item) throw new Error('Bookmark not found');
+      return item;
     },
 
+    // 3. Direct Supabase Insert + Local-First + Worker AI enrichment
     create: async (data: {
-      url?: string;
-      sharedText?: string;
-      title?: string;
-      notes?: string;
+      url: string;
+      sharedText?: string | null;
+      title?: string | null;
+      notes?: string | null;
+      imageUrl?: string | null;
     }): Promise<Bookmark> => {
-      return request('/api/bookmarks', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
+      const { userId, token } = await getCurrentSession();
+      return BookmarksService.createBookmark(userId, token, data);
     },
 
+    // 4. Direct Supabase Search
     search: async (q: string): Promise<{ items: Bookmark[]; total: number }> => {
-      return request(`/api/bookmarks/search?q=${encodeURIComponent(q)}`);
+      const { userId } = await getCurrentSession();
+      const items = await BookmarksService.searchBookmarks(userId, q);
+      return { items, total: items.length };
     },
 
+    // 5. Direct Supabase Update
     update: async (
       id: string,
       updates: {
@@ -151,32 +104,56 @@ export const api = {
         category?: string | null;
         tags?: string[];
         thumbnail_url?: string | null;
+        is_favorite?: boolean;
       }
     ): Promise<Bookmark> => {
-      return request(`/api/bookmarks/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(updates)
-      });
+      const { userId } = await getCurrentSession();
+      return BookmarksService.updateBookmark(userId, id, updates);
     },
 
+    // 6. Direct Supabase Delete
     delete: async (id: string): Promise<void> => {
-      return request(`/api/bookmarks/${id}`, {
-        method: 'DELETE'
-      });
+      const { userId } = await getCurrentSession();
+      await BookmarksService.deleteBookmark(userId, id);
     },
 
-    reprocess: async (id: string): Promise<Bookmark> => {
-      return request(`/api/bookmarks/${id}/reprocess`, {
-        method: 'POST'
-      });
+    // 7. Reprocess / Enrich via Cloudflare Worker
+    reprocess: async (id: string): Promise<{ success: boolean }> => {
+      const { token } = await getCurrentSession();
+      const res = await EnrichmentService.triggerEnrichment(id, token);
+      return { success: res.success };
     },
 
+    // 8. Categories directly from Supabase
     getCategories: async (): Promise<CategoryCount[]> => {
-      return request('/api/categories');
+      const { userId } = await getCurrentSession();
+      return BookmarksService.getCategories(userId);
     },
 
+    // 9. Tags directly from Supabase
     getTags: async (): Promise<TagCount[]> => {
-      return request('/api/tags');
+      const { userId } = await getCurrentSession();
+      const { data } = await supabase
+        .from('bookmarks')
+        .select('tags')
+        .eq('user_id', userId);
+
+      const tagMap: Record<string, number> = {};
+      (data || []).forEach((row) => {
+        if (Array.isArray(row.tags)) {
+          row.tags.forEach((t: string) => {
+            if (t && t.trim()) {
+              tagMap[t.trim()] = (tagMap[t.trim()] || 0) + 1;
+            }
+          });
+        }
+      });
+      return Object.entries(tagMap).map(([tag, count]) => ({ tag, count }));
+    },
+
+    // 10. Link Preview: YouTube client-side or Worker GET /api/link-preview
+    getLinkPreview: async (url: string): Promise<LinkPreviewData | null> => {
+      return PreviewService.getPreview(url);
     }
   }
 };

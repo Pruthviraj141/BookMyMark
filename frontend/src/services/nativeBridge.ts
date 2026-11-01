@@ -11,7 +11,8 @@ export interface NativeBridgePlugin {
   setSessionToken(options: { token: string }): Promise<void>;
   clearSessionToken(): Promise<void>;
   setApiBaseUrl(options: { url: string }): Promise<void>;
-  getConnectionConfiguration(): Promise<{ token: string | null; baseUrl: string | null }>;
+  setSupabaseConfig(options: { url: string; anonKey: string }): Promise<void>;
+  getConnectionConfiguration(): Promise<{ token: string | null; baseUrl: string | null; supabaseUrl: string | null }>;
   getPendingShares(): Promise<{ items: PendingShareItem[] }>;
   clearPendingShares(): Promise<void>;
 }
@@ -44,6 +45,16 @@ export class NativeSessionBridge {
         await NativeBridge.setApiBaseUrl({ url });
       } catch (e) {
         console.warn('NativeBridge setApiBaseUrl failed:', e);
+      }
+    }
+  }
+
+  static async syncSupabaseConfig(url: string, anonKey: string): Promise<void> {
+    if (this.isNative()) {
+      try {
+        await NativeBridge.setSupabaseConfig({ url, anonKey });
+      } catch (e) {
+        console.warn('NativeBridge setSupabaseConfig failed:', e);
       }
     }
   }

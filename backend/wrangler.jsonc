@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "savr-api",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "SUPABASE_URL": "https://ycaenlslaoiqnyopmytx.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_MDcmJ8a_EDsUpca-e-wcNA_sCOLllzt",
+    "SUPABASE_JWKS_URL": "https://ycaenlslaoiqnyopmytx.supabase.co/auth/v1/.well-known/jwks.json",
+    "GROQ_MODEL": "openai/gpt-oss-20b",
+    "CORS_ORIGINS": "*"
+  }
+}

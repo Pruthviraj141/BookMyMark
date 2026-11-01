@@ -18,6 +18,8 @@ class NativeBridgePlugin : Plugin() {
         const val PREFS_NAME = "MyBookMarkPrefs"
         const val KEY_AUTH_TOKEN = "auth_token"
         const val KEY_API_BASE_URL = "api_base_url"
+        const val KEY_SUPABASE_URL = "supabase_url"
+        const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
         const val KEY_PENDING_SHARES = "pending_shares"
 
         fun getPrefs(context: Context): SharedPreferences {
@@ -55,14 +57,31 @@ class NativeBridgePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun setSupabaseConfig(call: PluginCall) {
+        val url = call.getString("url")
+        val anonKey = call.getString("anonKey")
+        if (url != null && anonKey != null) {
+            getPrefs(context).edit()
+                .putString(KEY_SUPABASE_URL, url.trim().removeSuffix("/"))
+                .putString(KEY_SUPABASE_ANON_KEY, anonKey.trim())
+                .apply()
+            call.resolve()
+        } else {
+            call.reject("Must provide url and anonKey")
+        }
+    }
+
+    @PluginMethod
     fun getConnectionConfiguration(call: PluginCall) {
         val prefs = getPrefs(context)
         val token = prefs.getString(KEY_AUTH_TOKEN, null)
         val baseUrl = prefs.getString(KEY_API_BASE_URL, null)
+        val supabaseUrl = prefs.getString(KEY_SUPABASE_URL, null)
 
         val ret = JSObject()
         ret.put("token", token)
         ret.put("baseUrl", baseUrl)
+        ret.put("supabaseUrl", supabaseUrl)
         call.resolve(ret)
     }
 
@@ -81,7 +100,8 @@ class NativeBridgePlugin : Plugin() {
             val item = jsonArray.getJSONObject(i)
             val obj = JSObject()
             obj.put("url", item.optString("url"))
-            obj.put("sharedText", item.optString("sharedText", null))
+            val shared = if (item.has("sharedText") && !item.isNull("sharedText")) item.getString("sharedText") else null
+            obj.put("sharedText", shared)
             obj.put("timestamp", item.optLong("timestamp", System.currentTimeMillis()))
             jsArray.put(obj)
         }

@@ -9,9 +9,12 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.regex.Pattern
 
@@ -67,7 +70,7 @@ class ShareReceiverActivity : AppCompatActivity() {
         return null
     }
 
-    private fun extractUrl(text: stringText): String? {
+    private fun extractUrl(text: String): String? {
         val urlPattern = Pattern.compile(
             "(https?://[a-zA-Z0-9+&@#/%?=~_|!:,.;]*[a-zA-Z0-9+&@#/%=~_|])",
             Pattern.CASE_INSENSITIVE
@@ -75,19 +78,45 @@ class ShareReceiverActivity : AppCompatActivity() {
         val matcher = urlPattern.matcher(text)
         if (matcher.find()) {
             var url = matcher.group(1) ?: return null
-            // Clean trailing punctuation
             url = url.replace(Regex("[.,!?;:)>]+$"), "")
             return url
         }
         return null
     }
 
+    private fun detectPlatform(url: String): String {
+        val l = url.lowercase()
+        return when {
+            l.contains("instagram.com") -> "instagram"
+            l.contains("twitter.com") || l.contains("x.com") -> "x"
+            l.contains("youtube.com") || l.contains("youtu.be") -> "youtube"
+            l.contains("tiktok.com") -> "tiktok"
+            l.contains("reddit.com") -> "reddit"
+            else -> "website"
+        }
+    }
+
+    private fun extractUserIdFromToken(token: String): String? {
+        try {
+            val parts = token.split(".")
+            if (parts.size >= 2) {
+                val decoded = android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING)
+                val json = JSONObject(String(decoded, Charsets.UTF_8))
+                val sub = json.optString("sub", "")
+                if (sub.isNotBlank()) return sub
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
     private fun processBookmark(url: String, sharedText: String) {
         val prefs = NativeBridgePlugin.getPrefs(this)
         val token = prefs.getString(NativeBridgePlugin.KEY_AUTH_TOKEN, null)
-        val baseUrl = prefs.getString(NativeBridgePlugin.KEY_API_BASE_URL, null) ?: "http://192.168.1.11:3000"
+        val supabaseUrl = prefs.getString(NativeBridgePlugin.KEY_SUPABASE_URL, null) ?: "https://ycaenlslaoiqnyopmytx.supabase.co"
+        val supabaseKey = prefs.getString(NativeBridgePlugin.KEY_SUPABASE_ANON_KEY, null) ?: "sb_publishable_MDcmJ8a_EDsUpca-e-wcNA_sCOLllzt"
+        val workerUrl = prefs.getString(NativeBridgePlugin.KEY_API_BASE_URL, null) ?: "https://savr-api.markyourday.workers.dev"
 
-        // If not logged in, preserve share and open MainActivity to login screen
+        // If not logged in, preserve share in offline queue and launch MainActivity
         if (token.isNullOrBlank()) {
             enqueuePendingShare(url, sharedText)
             val launchIntent = Intent(this, MainActivity::class.java).apply {
@@ -96,30 +125,48 @@ class ShareReceiverActivity : AppCompatActivity() {
                 putExtra("pending_share_text", sharedText)
             }
             startActivity(launchIntent)
-            Toast.makeText(this, "Log in to save to MyBookMark", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Log in to save to SAVR", Toast.LENGTH_LONG).show()
             finish()
             return
         }
 
-        // Authenticated user: process in background without opening MainActivity
+        // Authenticated user: save directly to Supabase REST and trigger Worker AI enrichment
         executor.execute {
             var success = false
             var isQueuedOffline = false
+            var createdBookmarkId: String? = null
 
             try {
-                val endpoint = URL("$baseUrl/api/bookmarks")
-                val conn = endpoint.openConnection() as HttpURLConnection
+                // 1. Direct Supabase REST INSERT
+                val restEndpoint = URL("$supabaseUrl/rest/v1/bookmarks")
+                val conn = restEndpoint.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("apikey", supabaseKey)
                 conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.setRequestProperty("Accept", "application/json")
-                conn.connectTimeout = 7000
-                conn.readTimeout = 9000
+                conn.setRequestProperty("Prefer", "return=representation")
+                conn.connectTimeout = 6000
+                conn.readTimeout = 8000
                 conn.doOutput = true
 
+                val bookmarkId = UUID.randomUUID().toString()
+                val platform = detectPlatform(url)
+                val userId = extractUserIdFromToken(token)
+
                 val payload = JSONObject().apply {
-                    put("url", url)
-                    put("sharedText", sharedText)
+                    put("id", bookmarkId)
+                    if (!userId.isNullOrBlank()) {
+                        put("user_id", userId)
+                    }
+                    put("original_url", url)
+                    put("normalized_url", url)
+                    put("platform", platform)
+                    put("title", if (sharedText.isNotBlank()) sharedText.take(80) else url)
+                    put("description", sharedText)
+                    put("shared_text", sharedText)
+                    put("thumbnail_url", JSONObject.NULL) // Never store images
+                    put("ai_status", "pending")
+                    put("tags", JSONArray())
                 }
 
                 OutputStreamWriter(conn.outputStream).use { writer ->
@@ -128,23 +175,61 @@ class ShareReceiverActivity : AppCompatActivity() {
                 }
 
                 val responseCode = conn.responseCode
-                if (responseCode == 200 || responseCode == 201) {
+                if (responseCode in 200..299) {
+                    success = true
+                    createdBookmarkId = bookmarkId
+
+                    // Read created response to get the exact ID if generated by DB
+                    val responseStr = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                    try {
+                        val jsonArr = JSONArray(responseStr)
+                        if (jsonArr.length() > 0) {
+                            createdBookmarkId = jsonArr.getJSONObject(0).optString("id", bookmarkId)
+                        }
+                    } catch (_: Exception) {}
+                } else if (responseCode == 409) {
+                    // Duplicate URL already saved
                     success = true
                 } else {
                     isQueuedOffline = true
                     enqueuePendingShare(url, sharedText)
                 }
             } catch (e: Exception) {
-                // Network unreachable or local connection error
+                // Network unreachable or offline
                 isQueuedOffline = true
                 enqueuePendingShare(url, sharedText)
             }
 
+            // 2. Trigger Cloudflare Worker AI Enrichment if insert succeeded
+            if (success && !createdBookmarkId.isNullOrBlank()) {
+                try {
+                    val enrichEndpoint = URL("$workerUrl/api/bookmarks/$createdBookmarkId/enrich")
+                    val enrichConn = enrichEndpoint.openConnection() as HttpURLConnection
+                    enrichConn.requestMethod = "POST"
+                    enrichConn.setRequestProperty("Content-Type", "application/json")
+                    enrichConn.setRequestProperty("Authorization", "Bearer $token")
+                    enrichConn.connectTimeout = 4000
+                    enrichConn.readTimeout = 4000
+                    enrichConn.doOutput = true
+
+                    val enrichPayload = JSONObject().apply {
+                        put("sharedText", sharedText)
+                    }
+                    OutputStreamWriter(enrichConn.outputStream).use { writer ->
+                        writer.write(enrichPayload.toString())
+                        writer.flush()
+                    }
+                    enrichConn.responseCode // Trigger execution
+                } catch (_: Exception) {
+                    // Background AI trigger failure is non-blocking
+                }
+            }
+
             mainHandler.post {
                 if (success) {
-                    Toast.makeText(applicationContext, "Saved to MyBookMark ✓", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(applicationContext, "Saved to SAVR ✓", Toast.LENGTH_SHORT).show()
                 } else if (isQueuedOffline) {
-                    Toast.makeText(applicationContext, "Saved to queue — will sync when online", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(applicationContext, "Saved to offline queue — will sync when online", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(applicationContext, "Could not save bookmark", Toast.LENGTH_SHORT).show()
                 }
@@ -165,10 +250,6 @@ class ShareReceiverActivity : AppCompatActivity() {
             }
             jsonArray.put(newItem)
             prefs.edit().putString(NativeBridgePlugin.KEY_PENDING_SHARES, jsonArray.toString()).apply()
-        } catch (e: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
     }
 }
-
-private typealias stringText = String

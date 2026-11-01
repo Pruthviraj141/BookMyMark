@@ -1,117 +1,173 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api, getAuthToken, setAuthToken } from '../services/api.js';
+import { supabase } from '../config/supabase.js';
+import { setAuthToken } from '../services/api.js';
 import { NativeSessionBridge } from '../services/nativeBridge.js';
 import { getApiBaseUrl } from '../config/api.config.js';
-import type { User } from '../types/index.js';
+import { Browser } from '@capacitor/browser';
+import { App as CapApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import type { User as SupabaseAuthUser } from '@supabase/supabase-js';
+
+export interface AppUser {
+  id: string;
+  email?: string;
+  name?: string;
+  avatar_url?: string;
+}
 
 interface AuthContextType {
-  user: User | null;
+  user: AppUser | null;
   token: string | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setTokenState] = useState<string | null>(getAuthToken());
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [token, setTokenState] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Sync token to Native Bridge and fetch user profile
+  const formatUser = (sbUser: SupabaseAuthUser): AppUser => ({
+    id: sbUser.id,
+    email: sbUser.email,
+    name:
+      sbUser.user_metadata?.full_name ||
+      sbUser.user_metadata?.name ||
+      sbUser.email?.split('@')[0] ||
+      'SAVR User',
+    avatar_url: sbUser.user_metadata?.avatar_url
+  });
+
   useEffect(() => {
-    async function initAuth() {
-      // Sync API base URL to Native Bridge
-      await NativeSessionBridge.syncApiBaseUrl(getApiBaseUrl());
+    // 1. Initial URL & Native sync
+    const sbUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ycaenlslaoiqnyopmytx.supabase.co';
+    const sbKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+    NativeSessionBridge.syncApiBaseUrl(getApiBaseUrl()).catch(() => {});
+    NativeSessionBridge.syncSupabaseConfig(sbUrl, sbKey).catch(() => {});
 
-      const savedToken = getAuthToken();
-      if (!savedToken) {
-        await NativeSessionBridge.syncSessionToken(null);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        await NativeSessionBridge.syncSessionToken(savedToken);
-        const { user: profile } = await api.auth.getMe();
-        setUser(profile);
-
-        // Process any pending offline shares that were waiting for auth/network
-        processPendingShares();
-      } catch (err) {
-        console.warn('Session expired or unreachable:', err);
-        setAuthToken(null);
+    // 2. Fetch initial session from Supabase
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (session && !error) {
+        const accessToken = session.access_token;
+        setTokenState(accessToken);
+        setAuthToken(accessToken);
+        setUser(formatUser(session.user));
+        NativeSessionBridge.syncSessionToken(accessToken).catch(() => {});
+      } else {
         setTokenState(null);
+        setAuthToken(null);
         setUser(null);
-        await NativeSessionBridge.syncSessionToken(null);
-      } finally {
-        setLoading(false);
+        NativeSessionBridge.syncSessionToken(null).catch(() => {});
       }
-    }
+      setLoading(false);
+    });
 
-    initAuth();
-  }, []);
+    // 3. Listen to auth state changes (login, token refresh, logout)
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.access_token) {
+        const accessToken = session.access_token;
+        setTokenState(accessToken);
+        setAuthToken(accessToken);
+        setUser(formatUser(session.user));
+        await NativeSessionBridge.syncSessionToken(accessToken).catch(() => {});
+        await NativeSessionBridge.syncApiBaseUrl(getApiBaseUrl()).catch(() => {});
+      } else {
+        setTokenState(null);
+        setAuthToken(null);
+        setUser(null);
+        await NativeSessionBridge.syncSessionToken(null).catch(() => {});
+      }
+      setLoading(false);
+    });
 
-  const processPendingShares = async () => {
-    try {
-      const pending = await NativeSessionBridge.getPendingShares();
-      if (pending && pending.length > 0) {
-        console.log(`Processing ${pending.length} pending shares from Sharesheet...`);
-        for (const item of pending) {
-          try {
-            await api.bookmarks.create({
-              url: item.url,
-              sharedText: item.sharedText
+    // 4. Handle deep-link callback from Chrome Custom Tab / System Browser on Android
+    let appUrlListener: any = null;
+    if (Capacitor.isNativePlatform()) {
+      appUrlListener = CapApp.addListener('appUrlOpen', async ({ url }) => {
+        try {
+          await Browser.close();
+        } catch {}
+
+        if (url && (url.includes('#access_token') || url.includes('?access_token') || url.includes('code='))) {
+          const rawParams = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
+          const searchParams = new URLSearchParams(rawParams);
+          const accessToken = searchParams.get('access_token');
+          const refreshToken = searchParams.get('refresh_token');
+          const code = searchParams.get('code');
+
+          if (code) {
+            await supabase.auth.exchangeCodeForSession(code);
+          } else if (accessToken && refreshToken) {
+            await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken
             });
-          } catch (e) {
-            console.error('Failed to sync pending item:', item.url, e);
           }
         }
-        await NativeSessionBridge.clearPendingShares();
-      }
-    } catch (e) {
-      console.warn('Error processing pending shares:', e);
+      });
     }
-  };
 
-  const login = async (username: string, password: string) => {
-    const res = await api.auth.login(username, password);
-    setAuthToken(res.token);
-    setTokenState(res.token);
-    setUser(res.user);
-    await NativeSessionBridge.syncSessionToken(res.token);
-    await NativeSessionBridge.syncApiBaseUrl(getApiBaseUrl());
-    await processPendingShares();
-  };
+    return () => {
+      subscription.unsubscribe();
+      if (appUrlListener?.remove) {
+        appUrlListener.remove();
+      }
+    };
+  }, []);
 
-  const register = async (username: string, password: string) => {
-    const res = await api.auth.register(username, password);
-    setAuthToken(res.token);
-    setTokenState(res.token);
-    setUser(res.user);
-    await NativeSessionBridge.syncSessionToken(res.token);
-    await NativeSessionBridge.syncApiBaseUrl(getApiBaseUrl());
-    await processPendingShares();
+  const signInWithGoogle = async () => {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: 'com.mybookmark.app://google-auth',
+            skipBrowserRedirect: true,
+            queryParams: {
+              access_type: 'offline',
+              prompt: 'consent'
+            }
+          }
+        });
+        if (error) throw error;
+        if (data?.url) {
+          await Browser.open({ url: data.url, windowName: '_system' });
+        }
+      } else {
+        const redirectUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: redirectUrl,
+            queryParams: {
+              access_type: 'offline',
+              prompt: 'consent'
+            }
+          }
+        });
+        if (error) throw error;
+      }
+    } catch (err: any) {
+      console.error('Google Sign-In Error:', err);
+      throw err;
+    }
   };
 
   const logout = async () => {
     try {
-      await api.auth.logout();
-    } catch {}
-    setAuthToken(null);
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Sign-out error:', err);
+    }
     setTokenState(null);
+    setAuthToken(null);
     setUser(null);
-    await NativeSessionBridge.syncSessionToken(null);
-  };
-
-  const refreshUser = async () => {
-    try {
-      const { user: profile } = await api.auth.getMe();
-      setUser(profile);
-    } catch {}
+    await NativeSessionBridge.syncSessionToken(null).catch(() => {});
   };
 
   return (
@@ -120,10 +176,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         token,
         loading,
-        login,
-        register,
-        logout,
-        refreshUser
+        signInWithGoogle,
+        logout
       }}
     >
       {children}

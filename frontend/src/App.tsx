@@ -1,19 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { HomeScreen } from './screens/HomeScreen.js';
-import { SearchScreen } from './screens/SearchScreen.js';
-import { SettingsScreen } from './screens/SettingsScreen.js';
 import { LoginScreen } from './screens/LoginScreen.js';
-import { RegisterScreen } from './screens/RegisterScreen.js';
 import { BottomNavigation, type NavTab } from './components/BottomNavigation.js';
-import { AddBookmarkModal } from './components/AddBookmarkModal.js';
-import { BookmarkDetailModal } from './components/BookmarkDetailModal.js';
 import { Sparkles, Loader2 } from 'lucide-react';
 import type { Bookmark } from './types/index.js';
 
+// Lazy-loaded secondary screens and modals for code splitting
+const SearchScreen = lazy(() =>
+  import('./screens/SearchScreen.js').then((m) => ({ default: m.SearchScreen }))
+);
+const SettingsScreen = lazy(() =>
+  import('./screens/SettingsScreen.js').then((m) => ({ default: m.SettingsScreen }))
+);
+const AddBookmarkModal = lazy(() =>
+  import('./components/AddBookmarkModal.js').then((m) => ({ default: m.AddBookmarkModal }))
+);
+const BookmarkDetailModal = lazy(() =>
+  import('./components/BookmarkDetailModal.js').then((m) => ({ default: m.BookmarkDetailModal }))
+);
+
+const ScreenSkeleton: React.FC = () => (
+  <div className="flex-grow flex items-center justify-center min-h-[50vh]">
+    <Loader2 className="w-6 h-6 animate-spin text-violet-500" />
+  </div>
+);
+
 const MainApp: React.FC = () => {
   const { user, loading } = useAuth();
-  const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [currentTab, setCurrentTab] = useState<NavTab>('home');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedBookmark, setSelectedBookmark] = useState<Bookmark | null>(null);
@@ -33,14 +47,10 @@ const MainApp: React.FC = () => {
   }
 
   if (!user) {
-    if (authView === 'login') {
-      return <LoginScreen onNavigateToRegister={() => setAuthView('register')} />;
-    }
-    return <RegisterScreen onNavigateToLogin={() => setAuthView('login')} />;
+    return <LoginScreen />;
   }
 
   const handleBookmarkCreated = (newBookmark: Bookmark) => {
-    // Optionally open the newly created bookmark
     setSelectedBookmark(newBookmark);
   };
 
@@ -62,10 +72,12 @@ const MainApp: React.FC = () => {
             onOpenAddModal={() => setIsAddModalOpen(true)}
           />
         )}
-        {currentTab === 'search' && (
-          <SearchScreen onSelectBookmark={setSelectedBookmark} />
-        )}
-        {currentTab === 'settings' && <SettingsScreen />}
+        <Suspense fallback={<ScreenSkeleton />}>
+          {currentTab === 'search' && (
+            <SearchScreen onSelectBookmark={setSelectedBookmark} />
+          )}
+          {currentTab === 'settings' && <SettingsScreen />}
+        </Suspense>
       </div>
 
       {/* Floating Bottom Navigation */}
@@ -75,21 +87,26 @@ const MainApp: React.FC = () => {
         onOpenAddModal={() => setIsAddModalOpen(true)}
       />
 
-      {/* Add Bookmark Modal */}
-      <AddBookmarkModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onBookmarkCreated={handleBookmarkCreated}
-      />
+      {/* Modals with Suspense */}
+      <Suspense fallback={null}>
+        {isAddModalOpen && (
+          <AddBookmarkModal
+            isOpen={isAddModalOpen}
+            onClose={() => setIsAddModalOpen(false)}
+            onBookmarkCreated={handleBookmarkCreated}
+          />
+        )}
 
-      {/* Bookmark Detail Modal */}
-      <BookmarkDetailModal
-        bookmark={selectedBookmark}
-        isOpen={selectedBookmark !== null}
-        onClose={() => setSelectedBookmark(null)}
-        onBookmarkUpdated={handleBookmarkUpdated}
-        onBookmarkDeleted={handleBookmarkDeleted}
-      />
+        {selectedBookmark !== null && (
+          <BookmarkDetailModal
+            bookmark={selectedBookmark}
+            isOpen={selectedBookmark !== null}
+            onClose={() => setSelectedBookmark(null)}
+            onBookmarkUpdated={handleBookmarkUpdated}
+            onBookmarkDeleted={handleBookmarkDeleted}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };
