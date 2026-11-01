@@ -1,6 +1,8 @@
 import { supabase } from '../config/supabase.js';
 import { LocalDbService } from './local-db.service.js';
 import { EnrichmentService } from './enrichment.service.js';
+import { cleanCaption } from '../utils/text.js';
+import { bookmarkEvents } from './bookmarkEvents.js';
 import type { Bookmark, Platform } from '../types/index.js';
 
 export class BookmarksService {
@@ -58,17 +60,19 @@ export class BookmarksService {
     const rawUrl = row.original_url || row.url || '';
     const platform: Platform = row.platform || 'website';
     const isUrl = (s?: string | null) => Boolean(s && (s.startsWith('http://') || s.startsWith('https://') || s.includes('://')));
-    const cleanTitle = row.title && !isUrl(row.title)
-      ? row.title
-      : (row.shared_text && !isUrl(row.shared_text)
-          ? row.shared_text.slice(0, 80)
-          : BookmarksService.getDefaultTitle(platform, rawUrl));
+    const rawText = row.title || row.shared_text;
+    const cleaned = cleanCaption(rawText);
+    const cleanTitle = cleaned && !isUrl(cleaned)
+      ? cleaned.slice(0, 90)
+      : BookmarksService.getDefaultTitle(platform, rawUrl);
 
     return {
       ...row,
       url: rawUrl,
       original_url: rawUrl,
-      title: cleanTitle
+      title: cleanTitle,
+      summary: row.summary ? cleanCaption(row.summary) : row.summary,
+      description: row.description ? cleanCaption(row.description) : row.description
     };
   }
 
@@ -93,10 +97,11 @@ export class BookmarksService {
     const normalized = this.normalizeUrl(data.url);
     const platform = this.detectPlatform(data.url);
 
+    const cleanedShared = cleanCaption(data.sharedText);
     const cleanInitialTitle = data.title && !data.title.startsWith('http')
-      ? data.title
-      : (data.sharedText && !data.sharedText.startsWith('http')
-          ? data.sharedText.slice(0, 80)
+      ? cleanCaption(data.title)
+      : (cleanedShared
+          ? cleanedShared.slice(0, 90)
           : this.getDefaultTitle(platform, data.url));
 
     const newBookmark: Bookmark = {
@@ -107,8 +112,8 @@ export class BookmarksService {
       normalized_url: normalized,
       platform,
       title: cleanInitialTitle,
-      description: data.sharedText || null,
-      shared_text: data.sharedText || null,
+      description: cleanedShared || null,
+      shared_text: cleanedShared || null,
       thumbnail_url: null, // Critical: No image persistence
       notes: data.notes || null,
       summary: null,
@@ -170,6 +175,7 @@ export class BookmarksService {
       // 3. Trigger Cloudflare Worker AI enrichment in background
       EnrichmentService.triggerEnrichment(id, token, data.sharedText).catch(() => {});
 
+      bookmarkEvents.emit('created', activeRecord);
       return activeRecord;
     } catch (err) {
       console.warn('Direct Supabase insert failed, enqueued for offline sync:', err);
@@ -180,6 +186,7 @@ export class BookmarksService {
         bookmark: newBookmark,
         timestamp: Date.now()
       });
+      bookmarkEvents.emit('created', newBookmark);
       return newBookmark;
     }
   }
@@ -193,6 +200,7 @@ export class BookmarksService {
     params?: {
       category?: string;
       platform?: string;
+      is_favorite?: boolean;
       limit?: number;
       offset?: number;
     }
@@ -213,6 +221,10 @@ export class BookmarksService {
         query = query.eq('platform', params.platform);
       }
 
+      if (params?.is_favorite) {
+        query = query.eq('is_favorite', true);
+      }
+
       if (params?.limit) {
         const offset = params.offset || 0;
         query = query.range(offset, offset + params.limit - 1);
@@ -223,7 +235,7 @@ export class BookmarksService {
 
       const remoteBookmarks = (data || []).map((b) => this.normalizeBookmarkRow(b));
       // Cache fresh bookmarks locally if this was an unfiltered query
-      if (!params?.category && (!params?.platform || params.platform === 'all')) {
+      if (!params?.category && (!params?.platform || params.platform === 'all') && !params?.is_favorite) {
         LocalDbService.saveBookmarks(userId, remoteBookmarks);
       }
 
@@ -239,6 +251,9 @@ export class BookmarksService {
       }
       if (params?.platform && params.platform !== 'all') {
         cached = cached.filter((b) => b.platform === params.platform);
+      }
+      if (params?.is_favorite) {
+        cached = cached.filter((b) => Boolean(b.is_favorite));
       }
       return { bookmarks: cached, total: cached.length };
     }
@@ -295,7 +310,9 @@ export class BookmarksService {
 
       if (error) throw error;
       if (data) LocalDbService.upsertBookmark(userId, data);
-      return data;
+      const res = data || ({ ...(cached || {}), ...updatePayload } as Bookmark);
+      bookmarkEvents.emit('updated', res);
+      return res;
     } catch (err) {
       LocalDbService.enqueueSyncAction(userId, {
         id,
@@ -303,7 +320,9 @@ export class BookmarksService {
         bookmark: updatePayload,
         timestamp: Date.now()
       });
-      return { ...(cached || {}), ...updatePayload } as Bookmark;
+      const res = { ...(cached || {}), ...updatePayload } as Bookmark;
+      bookmarkEvents.emit('updated', res);
+      return res;
     }
   }
 
@@ -313,6 +332,7 @@ export class BookmarksService {
   static async deleteBookmark(userId: string, id: string): Promise<boolean> {
     // 1. Remove from local store immediately
     LocalDbService.removeBookmark(userId, id);
+    bookmarkEvents.emit('deleted', id);
 
     // 2. Direct Supabase DELETE
     try {

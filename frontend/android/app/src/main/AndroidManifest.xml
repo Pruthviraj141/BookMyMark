@@ -33,18 +33,19 @@
 
         </activity>
 
-        <!-- Native Share Target for Instagram, X, YouTube, etc. -->
+        <!-- Native Share Target for Instagram, X, YouTube, TikTok, Reddit, Chrome, etc. -->
         <activity
             android:name=".ShareReceiverActivity"
-            android:label="Save to MyBookMark"
+            android:label="BookMyMark"
             android:theme="@style/AppTheme.Transparent"
             android:noHistory="true"
             android:excludeFromRecents="true"
             android:exported="true">
-            <intent-filter android:label="Save to MyBookMark">
+            <intent-filter android:priority="1000" android:label="BookMyMark">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
             </intent-filter>
         </activity>
 

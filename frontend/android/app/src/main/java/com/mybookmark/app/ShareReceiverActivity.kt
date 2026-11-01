@@ -110,6 +110,29 @@ class ShareReceiverActivity : AppCompatActivity() {
         return null
     }
 
+    private fun cleanReelCaption(rawText: String?): String {
+        if (rawText.isNullOrBlank()) return ""
+        var s = rawText.trim()
+
+        val quoteMatch = Regex(":\\s*[\"“](.+?)[\"”]", RegexOption.DOT_MATCHES_ALL).find(s)
+        if (quoteMatch != null && quoteMatch.groupValues[1].isNotBlank()) {
+            s = quoteMatch.groupValues[1]
+        }
+
+        s = s.replace(Regex("https?://\\S+"), "")
+        s = s.replace(Regex("\\b\\d+[\\d,.]*[kKmM]?\\s*(likes?|comments?|shares?|views?|retweets?)\\b", RegexOption.IGNORE_CASE), "")
+        s = s.replace(Regex("\\b(likes?|comments?|shares?):\\s*\\d+[\\d,.]*[kKmM]?\\b", RegexOption.IGNORE_CASE), "")
+        s = s.replace(Regex("^(watch\\s+this\\s+reel(\\s+by\\s+@[a-zA-Z0-9._]+)?|check\\s+out\\s+this\\s+reel|shared\\s+via\\s+instagram|a\\s+reel\\s+saying|a\\s+tweet\\s+saying|in\\s+this\\s+reel|in\\s+this\\s+video)[:\\s,-]*", RegexOption.IGNORE_CASE), "")
+        s = s.replace(Regex("^that\\s+", RegexOption.IGNORE_CASE), "")
+        s = s.replace(Regex("^[\"'“‘\\s,:-]+|[\"'”’\\s,:-]+$"), "").trim()
+        s = s.replace(Regex("\\s{2,}"), " ")
+
+        if (s.isNotEmpty()) {
+            s = s.substring(0, 1).uppercase() + s.substring(1)
+        }
+        return s
+    }
+
     private fun processBookmark(url: String, sharedText: String) {
         val prefs = NativeBridgePlugin.getPrefs(this)
         val token = prefs.getString(NativeBridgePlugin.KEY_AUTH_TOKEN, null)
@@ -126,7 +149,7 @@ class ShareReceiverActivity : AppCompatActivity() {
                 putExtra("pending_share_text", sharedText)
             }
             startActivity(launchIntent)
-            Toast.makeText(this, "Log in to save to SAVR", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Log in to save to BookMyMark", Toast.LENGTH_LONG).show()
             finish()
             return
         }
@@ -161,8 +184,9 @@ class ShareReceiverActivity : AppCompatActivity() {
                     }
                     put("original_url", url)
                     put("normalized_url", url)
+                    val cleanedCaption = cleanReelCaption(sharedText)
                     val cleanTitle = when {
-                        sharedText.isNotBlank() && !sharedText.startsWith("http://") && !sharedText.startsWith("https://") -> sharedText.take(80)
+                        cleanedCaption.isNotBlank() && !cleanedCaption.startsWith("http://") && !cleanedCaption.startsWith("https://") -> cleanedCaption.take(90)
                         platform == "instagram" -> "Instagram Reel"
                         platform == "x" -> "X Post"
                         platform == "youtube" -> "YouTube Video"
@@ -177,7 +201,7 @@ class ShareReceiverActivity : AppCompatActivity() {
                         }
                     }
                     put("title", cleanTitle)
-                    put("shared_text", sharedText)
+                    put("shared_text", if (cleanedCaption.isNotBlank()) cleanedCaption else JSONObject.NULL)
                     put("thumbnail_url", JSONObject.NULL) // Never store images
                     put("ai_status", "pending")
                     put("tags", JSONArray())
@@ -241,9 +265,9 @@ class ShareReceiverActivity : AppCompatActivity() {
 
             mainHandler.post {
                 if (success) {
-                    Toast.makeText(applicationContext, "Saved to SAVR ✓", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(applicationContext, "Saved to BookMyMark ✓", Toast.LENGTH_SHORT).show()
                 } else if (isQueuedOffline) {
-                    Toast.makeText(applicationContext, "Saved to offline queue — will sync when online", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(applicationContext, "Saved Perfectly", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(applicationContext, "Could not save bookmark", Toast.LENGTH_SHORT).show()
                 }

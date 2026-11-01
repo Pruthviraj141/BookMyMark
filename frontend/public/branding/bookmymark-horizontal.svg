@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" fill="none">
+  <!-- BookMyMark Horizontal Brand Identity (Light) -->
+  <g transform="translate(0, 0)">
+    <rect x="8" y="4" width="32" height="40" rx="5" fill="#111111"/>
+    <path d="M17 4H31V25L24 19.5L17 25V4Z" fill="#FFFFFF"/>
+    <rect x="16" y="30" width="16" height="2.5" rx="1.25" fill="#FFFFFF"/>
+    <rect x="16" y="35.5" width="10" height="2.5" rx="1.25" fill="#FFFFFF"/>
+  </g>
+  <text x="52" y="30" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="700" fill="#111111" letter-spacing="-0.02em">BookMyMark</text>
+</svg>

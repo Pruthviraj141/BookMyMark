@@ -1,18 +1,89 @@
 @import "tailwindcss";
 
-:root {
-  color-scheme: dark;
+@layer theme {
+  :root {
+    --background: #FFFFFF;
+    --foreground: #111111;
+    --card: #FFFFFF;
+    --card-foreground: #111111;
+    --popover: #FFFFFF;
+    --popover-foreground: #111111;
+    --primary: #111111;
+    --primary-foreground: #FFFFFF;
+    --secondary: #F5F5F5;
+    --secondary-foreground: #111111;
+    --muted: #F5F5F5;
+    --muted-foreground: #646464;
+    --accent: #111111;
+    --accent-foreground: #FFFFFF;
+    --accent-bg: #F5F5F5;
+    --destructive: #111111;
+    --destructive-foreground: #FFFFFF;
+    --border: #E8E8E8;
+    --input: #E8E8E8;
+    --ring: #111111;
+    --surface-elevated: #F5F5F5;
+  }
+
+  html.dark, :root.dark, .dark {
+    --background: #090909;
+    --foreground: #FFFFFF;
+    --card: #181818;
+    --card-foreground: #FFFFFF;
+    --popover: #181818;
+    --popover-foreground: #FFFFFF;
+    --primary: #FFFFFF;
+    --primary-foreground: #090909;
+    --secondary: #181818;
+    --secondary-foreground: #FFFFFF;
+    --muted: #181818;
+    --muted-foreground: #AAAAAA;
+    --accent: #FFFFFF;
+    --accent-foreground: #090909;
+    --accent-bg: #222222;
+    --destructive: #FFFFFF;
+    --destructive-foreground: #090909;
+    --border: #292929;
+    --input: #292929;
+    --ring: #FFFFFF;
+    --surface-elevated: #222222;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-bg: var(--accent-bg);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-elevated: var(--surface-elevated);
 }
 
 body {
   margin: 0;
   padding: 0;
-  background-color: #0d0e14;
-  color: #f3f4f6;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior-y: contain;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 #root {
@@ -30,4 +101,47 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Restrained animations */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

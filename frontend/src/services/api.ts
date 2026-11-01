@@ -55,6 +55,7 @@ export const api = {
     list: async (params?: {
       category?: string;
       platform?: string;
+      is_favorite?: boolean;
       search?: string;
       limit?: number;
       offset?: number;

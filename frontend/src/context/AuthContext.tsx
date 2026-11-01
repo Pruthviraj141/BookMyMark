@@ -37,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sbUser.user_metadata?.full_name ||
       sbUser.user_metadata?.name ||
       sbUser.email?.split('@')[0] ||
-      'SAVR User',
+      'BookMyMark User',
     avatar_url: sbUser.user_metadata?.avatar_url
   });
 

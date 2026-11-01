@@ -99,14 +99,14 @@ export class GroqClassifierService {
       };
     }
 
-    const systemPrompt = `You are a fast, expert JSON classifier for personal bookmarks in SAVR. Think concisely.
+    const systemPrompt = `You are a fast, expert JSON classifier for personal bookmarks in BookMyMark. Think concisely.
 Analyze the content evidence (including title, creator, captions, hashtags, descriptions, and keywords) and return a valid JSON object matching this exact schema:
 {
   "category": "Knowledge | Programming | Technology | Funny | Fitness | Entertainment | Lifestyle | Travel | Motivation | News | Inspiration | Education | Other",
   "topic": "string (specific subject/topic e.g. Boxing, React 19, Quantum Physics, Roman History)",
   "tags": ["3 to 5 string tags without #"],
   "content_type": "reel | tweet | video | article | educational | general",
-  "summary": "1 concise sentence summary of the subject",
+  "summary": "1 direct, on-point sentence explaining the key point or insight directly.",
   "confidence": 0.9,
   "insufficient_content": false
 }
@@ -114,8 +114,9 @@ CRITICAL RULES:
 1. Always identify SPECIFIC topics (e.g. Boxing, React 19, Quantum Physics, Standup Comedy, Roman Empire) rather than generic category names.
 2. Infer topic and category directly from the title, description, and keywords. A clear title or shared note is sufficient evidence for classification.
 3. Extract 3 to 5 specific tags (1-2 words each, without '#').
-4. Only set insufficient_content: true if literally no usable text or subject can be identified.
-5. Output pure JSON object only. No markdown formatting.`;
+4. For summary: Get directly to the point. NEVER write meta-commentary like 'A tweet saying...', 'A reel saying...', 'A video showing...', 'This reel shows...', or 'The post discusses...'. State the actual insight directly.
+5. Only set insufficient_content: true if literally no usable text or subject can be identified.
+6. Output pure JSON object only. No markdown formatting.`;
 
     const userPrompt = `Content evidence:\n${nonUrlText.slice(0, 1200)}`;
 

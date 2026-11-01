@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { PlatformBadge } from './PlatformBadge.js';
 import { formatRelativeTime } from '../utils/date.js';
-import { Sparkles, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import { AlertCircle, Loader2, Heart } from 'lucide-react';
 import { api, type LinkPreviewData } from '../services/api.js';
-import { NativeSessionBridge } from '../services/nativeBridge.js';
+import { cleanCaption } from '../utils/text.js';
 import type { Bookmark } from '../types/index.js';
 
 // In-memory preview cache for the current session (never saved to database)
@@ -18,49 +18,74 @@ function getCachedLinkPreview(url: string): Promise<LinkPreviewData | null> {
   return promise;
 }
 
+// Single high-performance shared IntersectionObserver for all cards
+type ObserverCallback = () => void;
+const observerCallbacks = new Map<Element, ObserverCallback>();
+let sharedObserverInstance: IntersectionObserver | null = null;
+
+function getSharedObserver(): IntersectionObserver | null {
+  if (typeof window === 'undefined' || !('IntersectionObserver' in window)) return null;
+  if (!sharedObserverInstance) {
+    sharedObserverInstance = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const cb = observerCallbacks.get(entry.target);
+            if (cb) {
+              cb();
+              observerCallbacks.delete(entry.target);
+              sharedObserverInstance?.unobserve(entry.target);
+            }
+          }
+        }
+      },
+      { rootMargin: '350px' }
+    );
+  }
+  return sharedObserverInstance;
+}
+
+function observeNearViewport(element: Element, callback: ObserverCallback): () => void {
+  const observer = getSharedObserver();
+  if (!observer) {
+    callback();
+    return () => {};
+  }
+  observerCallbacks.set(element, callback);
+  observer.observe(element);
+  return () => {
+    observerCallbacks.delete(element);
+    observer.unobserve(element);
+  };
+}
+
 interface BookmarkCardProps {
   bookmark: Bookmark;
   onClick: (bookmark: Bookmark) => void;
+  onToggleFavorite?: (bookmark: Bookmark) => void;
 }
 
-export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick }) => {
+const BookmarkCardInner: React.FC<BookmarkCardProps> = ({ bookmark, onClick, onToggleFavorite }) => {
   const [imageError, setImageError] = useState(false);
   const [preview, setPreview] = useState<LinkPreviewData | null>(null);
-  const [isNearViewport, setIsNearViewport] = useState(false);
+  const [isNearViewport, setIsNearViewport] = useState(bookmark.platform === 'youtube');
   const cardRef = React.useRef<HTMLDivElement>(null);
 
   const targetUrl = bookmark.url || bookmark.original_url || '';
 
-  // 1. IntersectionObserver: Only trigger preview fetch when approaching viewport (200px rootMargin)
+  // 1. Shared IntersectionObserver: Trigger preview fetch when approaching viewport
   useEffect(() => {
-    // YouTube thumbnails are generated client-side with zero network calls, resolve immediately
-    if (bookmark.platform === 'youtube') {
+    if (bookmark.platform === 'youtube' || !cardRef.current) {
       setIsNearViewport(true);
       return;
     }
 
-    if (!cardRef.current || typeof IntersectionObserver === 'undefined') {
+    return observeNearViewport(cardRef.current, () => {
       setIsNearViewport(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsNearViewport(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '200px' }
-    );
-
-    observer.observe(cardRef.current);
-    return () => {
-      observer.disconnect();
-    };
+    });
   }, [bookmark.platform]);
 
-  // 2. Request link preview only when approaching viewport
+  // 2. Fetch link preview data
   useEffect(() => {
     if (!isNearViewport || !targetUrl) return;
 
@@ -78,10 +103,10 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
     };
   }, [isNearViewport, targetUrl]);
 
-  // Use preview imageUrl (in-memory) or legacy thumbnail
+  // Use preview imageUrl or legacy thumbnail
   const activeImageUrl = !imageError ? preview?.imageUrl || bookmark.thumbnail_url : null;
 
-  // Natural aspect ratio: portrait for Instagram Reels/TikTok, landscape for YouTube/Web
+  // Natural aspect ratio: portrait for Reels/TikTok, landscape for YouTube/Web
   const isPortraitContent = bookmark.platform === 'instagram' || bookmark.platform === 'tiktok';
   const aspectClass = isPortraitContent ? 'aspect-[4/5]' : 'aspect-video';
 
@@ -96,9 +121,9 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
   const isUrl = (s?: string | null) => Boolean(s && (s.startsWith('http://') || s.startsWith('https://') || s.includes('://')));
 
   const getCleanTitle = () => {
-    if (bookmark.title && !isUrl(bookmark.title)) return bookmark.title;
-    if (preview?.title && !isUrl(preview.title)) return preview.title;
-    if (bookmark.shared_text && !isUrl(bookmark.shared_text)) return bookmark.shared_text.slice(0, 80);
+    const raw = bookmark.title || preview?.title || bookmark.shared_text;
+    const cleaned = cleanCaption(raw);
+    if (cleaned && !isUrl(cleaned)) return cleaned.slice(0, 90);
     switch (bookmark.platform) {
       case 'instagram': return 'Instagram Reel';
       case 'x': return 'X Post';
@@ -110,79 +135,64 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
   };
 
   const displayTitle = getCleanTitle();
-  const displaySummary = bookmark.summary || preview?.description || bookmark.description;
+  const rawSummary = bookmark.summary || preview?.description || bookmark.description;
+  const displaySummary = cleanCaption(rawSummary);
 
   return (
     <div
       ref={cardRef}
       onClick={() => onClick(bookmark)}
-      className="group flex flex-col bg-[#161822] hover:bg-[#1c1e2a] active:scale-[0.98] transition-all duration-200 rounded-2xl overflow-hidden border border-[#272a38] hover:border-violet-500/40 shadow-lg shadow-black/40 cursor-pointer mb-3 select-none"
+      className="group flex flex-col bg-card/60 hover:bg-card/90 active:scale-[0.985] transition-all duration-150 cursor-pointer mb-3 select-none rounded-[16px] border border-border/80 shadow-2xs p-2 overflow-hidden"
+      style={{ contain: 'layout paint' }}
     >
-      {/* Prominent Cover Image or Clean Fallback - Tap directly opens in native app */}
-      <div
-        onClick={(e) => {
-          e.stopPropagation();
-          NativeSessionBridge.openAppUrl(targetUrl);
-        }}
-        className={`relative w-full ${aspectClass} bg-[#0e1017] overflow-hidden flex items-center justify-center cursor-pointer`}
-      >
+      {/* Editorial Cover Image Container */}
+      <div className={`relative w-full ${aspectClass} rounded-[10px] bg-muted/40 overflow-hidden flex items-center justify-center border border-border/40`}>
         {activeImageUrl ? (
           <img
             src={activeImageUrl}
             alt={displayTitle || 'Bookmark preview'}
             loading="lazy"
+            decoding="async"
             referrerPolicy="no-referrer"
             crossOrigin="anonymous"
             onError={() => setImageError(true)}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="w-full h-full object-cover"
           />
         ) : !preview && isNearViewport ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-[#13151f] animate-pulse relative">
-            <PlatformBadge platform={bookmark.platform} showLabel={false} className="scale-110 mb-2 opacity-60" />
-            <div className="w-3/4 h-3 bg-zinc-800 rounded-md mb-2"></div>
-            <div className="w-1/2 h-2.5 bg-zinc-800/60 rounded-md"></div>
+          <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center bg-muted/30 relative">
+            <PlatformBadge platform={bookmark.platform} showLabel={false} className="opacity-40 mb-1" />
+            <div className="w-2/3 h-2.5 bg-muted rounded mb-1.5" />
+            <div className="w-1/2 h-2 bg-muted/60 rounded" />
           </div>
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-[#1a1c28] to-[#0f1017] relative">
-            <PlatformBadge platform={bookmark.platform} showLabel={false} className="scale-125 mb-2 shadow-md" />
-            <span className="text-xs text-zinc-300 font-medium truncate max-w-[85%]">
+          <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center bg-muted/20 relative">
+            <PlatformBadge platform={bookmark.platform} showLabel={false} className="opacity-70 mb-1.5" />
+            <span className="text-xs text-foreground font-medium truncate max-w-[85%]">
               {displayTitle}
             </span>
-            <span className="text-[10px] text-zinc-500 font-mono mt-1">
+            <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
               {cleanHost}
             </span>
           </div>
         )}
 
-        {/* Platform badge overlay */}
-        <div className="absolute top-2.5 left-2.5 z-10">
+        {/* Tiny monochrome platform identifier in corner */}
+        <div className="absolute top-2 left-2 z-10">
           <PlatformBadge platform={bookmark.platform} />
         </div>
 
-        {/* Quick Open in Native App Action */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            NativeSessionBridge.openAppUrl(targetUrl);
-          }}
-          title="Open in native app"
-          className="absolute bottom-2.5 right-2.5 z-20 p-2 rounded-xl bg-black/65 hover:bg-violet-600 active:scale-95 text-zinc-300 hover:text-white backdrop-blur-md border border-white/10 shadow-lg transition-all"
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-        </button>
-
-        {/* AI processing status indicator */}
-        {bookmark.ai_status === 'processing' && (
-          <div className="absolute top-2.5 right-2.5 bg-black/75 backdrop-blur-md px-2 py-0.5 rounded-full flex items-center gap-1.5 text-[10px] text-purple-300 border border-purple-500/40 shadow-md">
-            <Loader2 className="w-2.5 h-2.5 animate-spin text-purple-400" />
-            <span>AI Enriching</span>
+        {/* Quiet favorite toggle (monochrome black/white) */}
+        {onToggleFavorite && bookmark.is_favorite && (
+          <div className="absolute top-2 right-2 z-10 p-1 rounded-md bg-background/85 text-foreground backdrop-blur-xs border border-border/80 shadow-2xs">
+            <Heart className="w-3 h-3 fill-foreground text-foreground" />
           </div>
         )}
-        {bookmark.ai_status === 'pending' && (
-          <div className="absolute top-2.5 right-2.5 bg-black/75 backdrop-blur-md px-2 py-0.5 rounded-full flex items-center gap-1 text-[10px] text-zinc-300 border border-zinc-700/60 shadow-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            <span>Queued</span>
+
+        {/* Subtle AI status indicator */}
+        {bookmark.ai_status === 'processing' && (
+          <div className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-mono text-muted-foreground border border-border flex items-center gap-1 shadow-2xs">
+            <Loader2 className="w-2.5 h-2.5 animate-spin text-foreground" />
+            <span>AI</span>
           </div>
         )}
         {bookmark.ai_status === 'failed' && (
@@ -192,64 +202,54 @@ export const BookmarkCard: React.FC<BookmarkCardProps> = ({ bookmark, onClick })
               e.stopPropagation();
               api.bookmarks.reprocess(bookmark.id).catch(() => {});
             }}
-            title="AI classification failed. Tap to retry"
-            className="absolute top-2.5 right-2.5 bg-black/75 hover:bg-red-950/80 active:scale-95 backdrop-blur-md px-2 py-0.5 rounded-full flex items-center gap-1 text-[10px] text-red-400 border border-red-500/40 shadow-md cursor-pointer transition-all"
+            title="Retry AI"
+            className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-mono text-muted-foreground border border-border flex items-center gap-1 shadow-2xs cursor-pointer"
           >
             <AlertCircle className="w-2.5 h-2.5" />
-            <span>Retry AI</span>
+            <span>Retry</span>
           </button>
         )}
       </div>
 
-      {/* Card Body */}
-      <div className="p-3.5 flex flex-col flex-grow">
-        {/* Title */}
-        <h3 className="text-sm font-semibold text-zinc-100 line-clamp-2 leading-snug mb-1.5 group-hover:text-violet-300 transition-colors">
+      {/* Editorial Typography & Metadata with Enhanced Readability */}
+      <div className="pt-2 px-1 pb-0.5 flex flex-col flex-grow">
+        {/* Category label */}
+        {bookmark.category && bookmark.category !== 'Other' && (
+          <span className="text-[10.5px] font-mono tracking-wider uppercase text-muted-foreground/90 font-medium mb-1">
+            {bookmark.category}
+          </span>
+        )}
+
+        {/* Bookmark Title: High contrast, prominent font-semibold, comfortable line height */}
+        <h3 className="text-[14px] sm:text-[15px] font-semibold text-foreground line-clamp-2 leading-[1.3] tracking-tight">
           {displayTitle}
         </h3>
 
-        {/* Description or Summary */}
+        {/* Short description: comfortable reading size, balanced contrast */}
         {displaySummary && (
-          <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed mb-2.5">
+          <p className="text-[12.5px] text-muted-foreground font-normal line-clamp-2 leading-relaxed mt-1">
             {displaySummary}
           </p>
         )}
 
-        {/* Category Pill */}
-        {bookmark.category && bookmark.category !== 'Other' && (
-          <div className="mb-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-300 bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-800/40">
-              <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
-              {bookmark.category}
-            </span>
-          </div>
-        )}
-
-        {/* Topic Tags */}
-        {bookmark.tags && bookmark.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2.5">
-            {bookmark.tags.slice(0, 3).map((tag, idx) => (
-              <span
-                key={idx}
-                className="text-[10px] text-zinc-300 bg-zinc-800/80 px-2 py-0.5 rounded-md border border-zinc-700/50"
-              >
-                #{tag}
-              </span>
-            ))}
-            {bookmark.tags.length > 3 && (
-              <span className="text-[10px] text-zinc-500 self-center">
-                +{bookmark.tags.length - 3}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Footer info: saved date */}
-        <div className="mt-auto pt-2 flex items-center justify-between text-[11px] text-zinc-500 border-t border-zinc-800/70">
-          <span>{formatRelativeTime(bookmark.created_at)}</span>
-          <span className="font-mono text-[10px] text-zinc-600">{cleanHost}</span>
-        </div>
+        {/* Subtle saved-time information */}
+        <span className="text-[10.5px] text-muted-foreground/70 font-mono mt-2">
+          {formatRelativeTime(bookmark.created_at)}
+        </span>
       </div>
     </div>
   );
 };
+
+// React.memo to eliminate redundant card re-renders during fast scrolling
+export const BookmarkCard = React.memo(BookmarkCardInner, (prev, next) => {
+  return (
+    prev.bookmark.id === next.bookmark.id &&
+    prev.bookmark.is_favorite === next.bookmark.is_favorite &&
+    prev.bookmark.ai_status === next.bookmark.ai_status &&
+    prev.bookmark.title === next.bookmark.title &&
+    prev.bookmark.summary === next.bookmark.summary &&
+    prev.bookmark.description === next.bookmark.description &&
+    prev.bookmark.thumbnail_url === next.bookmark.thumbnail_url
+  );
+});
