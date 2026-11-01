@@ -201,25 +201,49 @@ export const CategoriesScreen: React.FC<CategoriesScreenProps> = ({
 }) => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [categories, setCategories] = useState<CategoryCardData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<CategoryCardData[]>(() => {
+    if (!user?.id) return [];
+    try {
+      const cached = LocalDbService.getBookmarks(user.id);
+      if (!cached || cached.length === 0) return [];
+      const countsMap: Record<string, number> = {};
+      cached.forEach((b) => {
+        const cat = b.category || 'Other';
+        countsMap[cat] = (countsMap[cat] || 0) + 1;
+      });
+      return Object.entries(countsMap)
+        .filter(([_, count]) => count > 0)
+        .map(([category, count]) => {
+          const match = cached.find(
+            (b) => b.category?.toLowerCase() === category.toLowerCase() && b.thumbnail_url
+          );
+          return {
+            category,
+            count,
+            previewImageUrl: match?.thumbnail_url || null
+          };
+        });
+    } catch {
+      return [];
+    }
+  });
+
+  const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categoryBookmarks, setCategoryBookmarks] = useState<Bookmark[]>([]);
   const [loadingCategoryBookmarks, setLoadingCategoryBookmarks] = useState(false);
 
-  // Load dynamic categories with preview images from bookmarks
+  // Load dynamic categories with preview images from bookmarks in parallel
   const loadCategories = useCallback(async () => {
-    setLoading(true);
     try {
-      const counts: CategoryCount[] = await api.bookmarks.getCategories();
-      const validCounts = counts.filter((c) => c.count > 0);
-
       const cached = user?.id ? LocalDbService.getBookmarks(user.id) : [];
-      let allItems = cached;
-      if (allItems.length === 0) {
-        const listRes = await api.bookmarks.list({ limit: 100 });
-        allItems = listRes.bookmarks;
-      }
+      const [counts, listRes] = await Promise.all([
+        api.bookmarks.getCategories().catch(() => []),
+        cached.length === 0 ? api.bookmarks.list({ limit: 100 }).catch(() => ({ bookmarks: [] })) : Promise.resolve({ bookmarks: cached })
+      ]);
+
+      const validCounts = counts.filter((c) => c.count > 0);
+      const allItems = cached.length > 0 ? cached : (listRes?.bookmarks || []);
 
       const cards: CategoryCardData[] = validCounts.map((cat) => {
         const match = allItems.find(

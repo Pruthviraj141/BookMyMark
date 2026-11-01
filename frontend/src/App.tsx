@@ -11,28 +11,11 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { bookmarkEvents } from './services/bookmarkEvents.js';
 import type { Bookmark } from './types/index.js';
 
-// Lazy-loaded secondary views
-const SearchScreen = lazy(() =>
-  import('./screens/SearchScreen.js').then((m) => ({ default: m.SearchScreen }))
-);
-const CategoriesScreen = lazy(() =>
-  import('./screens/CategoriesScreen.js').then((m) => ({ default: m.CategoriesScreen }))
-);
-const FavoritesScreen = lazy(() =>
-  import('./screens/FavoritesScreen.js').then((m) => ({ default: m.FavoritesScreen }))
-);
-const AddBookmarkModal = lazy(() =>
-  import('./components/AddBookmarkModal.js').then((m) => ({ default: m.AddBookmarkModal }))
-);
-const BookmarkDetailModal = lazy(() =>
-  import('./components/BookmarkDetailModal.js').then((m) => ({ default: m.BookmarkDetailModal }))
-);
-
-const ScreenSkeleton: React.FC = () => (
-  <div className="flex-grow flex items-center justify-center min-h-[50vh]">
-    <Loader2 className="w-5 h-5 animate-spin text-foreground" />
-  </div>
-);
+import { SearchScreen } from './screens/SearchScreen.js';
+import { CategoriesScreen } from './screens/CategoriesScreen.js';
+import { FavoritesScreen } from './screens/FavoritesScreen.js';
+import { AddBookmarkModal } from './components/AddBookmarkModal.js';
+import { BookmarkDetailModal } from './components/BookmarkDetailModal.js';
 
 const PRIMARY_TABS: NavTab[] = ['home', 'search', 'categories'];
 
@@ -181,39 +164,35 @@ const MainApp: React.FC = () => {
       onTouchEnd={handleTouchEnd}
       className="min-h-screen bg-background text-foreground flex flex-col font-sans select-none antialiased transition-colors"
     >
-      {/* Active Screen */}
+      {/* Active Screens (Instant 0ms keep-alive tab switching) */}
       <div className="flex-grow">
         {isFavoritesOpen ? (
-          <Suspense fallback={<ScreenSkeleton />}>
-            <FavoritesScreen
-              onSelectBookmark={setSelectedBookmark}
-              onBackToHome={() => setIsFavoritesOpen(false)}
-            />
-          </Suspense>
+          <FavoritesScreen
+            onSelectBookmark={setSelectedBookmark}
+            onBackToHome={() => setIsFavoritesOpen(false)}
+          />
         ) : (
           <>
-            {currentTab === 'home' && (
+            <div className={currentTab === 'home' ? 'block' : 'hidden'}>
               <HomeScreen
                 onSelectBookmark={setSelectedBookmark}
                 onOpenAddModal={() => setIsAddModalOpen(true)}
                 onOpenFavorites={() => setIsFavoritesOpen(true)}
               />
-            )}
-            <Suspense fallback={<ScreenSkeleton />}>
-              {currentTab === 'search' && (
-                <SearchScreen
-                  onSelectBookmark={setSelectedBookmark}
-                  onBackToHome={() => setCurrentTab('home')}
-                  onOpenAddModal={() => setIsAddModalOpen(true)}
-                />
-              )}
-              {currentTab === 'categories' && (
-                <CategoriesScreen
-                  onSelectBookmark={setSelectedBookmark}
-                  onBackToHome={() => setCurrentTab('home')}
-                />
-              )}
-            </Suspense>
+            </div>
+            <div className={currentTab === 'search' ? 'block' : 'hidden'}>
+              <SearchScreen
+                onSelectBookmark={setSelectedBookmark}
+                onBackToHome={() => setCurrentTab('home')}
+                onOpenAddModal={() => setIsAddModalOpen(true)}
+              />
+            </div>
+            <div className={currentTab === 'categories' ? 'block' : 'hidden'}>
+              <CategoriesScreen
+                onSelectBookmark={setSelectedBookmark}
+                onBackToHome={() => setCurrentTab('home')}
+              />
+            </div>
           </>
         )}
       </div>
@@ -226,26 +205,24 @@ const MainApp: React.FC = () => {
         />
       )}
 
-      {/* Modals & Detail Bottom Sheet with Suspense */}
-      <Suspense fallback={null}>
-        {isAddModalOpen && (
-          <AddBookmarkModal
-            isOpen={isAddModalOpen}
-            onClose={() => setIsAddModalOpen(false)}
-            onBookmarkCreated={handleBookmarkCreated}
-          />
-        )}
+      {/* Modals & Detail Bottom Sheet (Instant 0ms rendering) */}
+      {isAddModalOpen && (
+        <AddBookmarkModal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          onBookmarkCreated={handleBookmarkCreated}
+        />
+      )}
 
-        {selectedBookmark !== null && (
-          <BookmarkDetailModal
-            bookmark={selectedBookmark}
-            isOpen={selectedBookmark !== null}
-            onClose={() => setSelectedBookmark(null)}
-            onBookmarkUpdated={handleBookmarkUpdated}
-            onBookmarkDeleted={handleBookmarkDeleted}
-          />
-        )}
-      </Suspense>
+      {selectedBookmark !== null && (
+        <BookmarkDetailModal
+          bookmark={selectedBookmark}
+          isOpen={selectedBookmark !== null}
+          onClose={() => setSelectedBookmark(null)}
+          onBookmarkUpdated={handleBookmarkUpdated}
+          onBookmarkDeleted={handleBookmarkDeleted}
+        />
+      )}
     </div>
   );
 };
