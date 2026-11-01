@@ -1,0 +1,27 @@
+name: Feature Request
+description: Suggest an idea or enhancement for BookMyMark
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to make BookMyMark even better? We'd love to hear it!
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Description
+      description: A clear and concise description of the feature or enhancement you would like.
+    validations:
+      required: true
+  - type: textarea
+    id: problem-solved
+    attributes:
+      label: Problem or Use Case
+      description: What problem does this solve, or what workflow does it enhance?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or features you've considered.

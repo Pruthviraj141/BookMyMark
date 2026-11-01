@@ -1,0 +1,94 @@
+# ==============================================================================
+# BookMyMark Root .gitignore
+# ==============================================================================
+
+# OS & Workspace Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+*.bak
+
+# IDE & Editor Directories
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# Local Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+!.env.example
+!.env.test
+*.local
+
+# Node Dependencies & Package Manager Artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+.npm/
+
+# Build & Compilation Outputs
+dist/
+dist-ssr/
+build/
+out/
+bin/
+gen/
+*.tsbuildinfo
+
+# SQLite Database & Storage Files
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Test & Coverage Outputs
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+
+# Android Build & Native Binaries
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+.gradle/
+savr/frontend/android/.gradle/
+savr/frontend/android/build/
+savr/frontend/android/app/build/
+savr/frontend/android/local.properties
+savr/frontend/android/captures/
+savr/frontend/android/.navigation/
+*.iml
+*.keystore
+*.jks
+
+# Temporary and Scratch Directories
+tmp/
+temp/
+scratch/
+.cache/
+.oxlint-cache
+.agent/
+.agents/
+skills-lock.json
