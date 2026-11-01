@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase.js';
-import { LocalDbService, type PendingSyncAction } from './local-db.service.js';
+import { LocalDbService } from './local-db.service.js';
 import { EnrichmentService } from './enrichment.service.js';
 import type { Bookmark, Platform } from '../types/index.js';
 
@@ -65,6 +65,7 @@ export class BookmarksService {
       shared_text: data.sharedText || null,
       thumbnail_url: null, // Critical: No image persistence
       notes: data.notes || null,
+      summary: null,
       category: 'Other',
       tags: [],
       ai_status: 'pending',

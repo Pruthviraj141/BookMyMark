@@ -37,7 +37,7 @@ export interface Bookmark {
   author_name?: string | null;
   shared_text?: string | null;
   extracted_text?: string | null;
-  summary: string | null;
+  summary?: string | null;
   category: string | null;
   tags: string[];
   content_type?: string | null;

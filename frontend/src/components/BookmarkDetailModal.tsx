@@ -12,7 +12,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { PlatformBadge } from './PlatformBadge.js';
-import { api, getProxyImageUrl } from '../services/api.js';
+import { api } from '../services/api.js';
 import { formatRelativeTime } from '../utils/date.js';
 import type { Bookmark } from '../types/index.js';
 
@@ -90,8 +90,8 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
     setReprocessing(true);
     setError(null);
     try {
-      const updated = await api.bookmarks.reprocess(bookmark.id);
-      onBookmarkUpdated(updated);
+      await api.bookmarks.reprocess(bookmark.id);
+      onBookmarkUpdated({ ...bookmark, ai_status: 'pending' });
     } catch (err: any) {
       setError(err.message || 'Reprocessing request failed');
     } finally {
