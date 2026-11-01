@@ -31,12 +31,18 @@
                 <data android:scheme="com.mybookmark.app" />
             </intent-filter>
 
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+
         </activity>
 
         <!-- Native Share Target for Instagram, X, YouTube, TikTok, Reddit, Chrome, etc. -->
         <activity
             android:name=".ShareReceiverActivity"
             android:label="BookMyMark"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
             android:theme="@style/AppTheme.Transparent"
             android:noHistory="true"
             android:excludeFromRecents="true"

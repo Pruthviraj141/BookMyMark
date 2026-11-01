@@ -193,11 +193,16 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
           <div className="px-4 py-2 border-b border-border flex items-center justify-between shrink-0 bg-card">
             <div className="flex items-center gap-2">
               <PlatformBadge platform={bookmark.platform} showLabel />
-              {bookmark.category && (
+              {bookmark.ai_status === 'pending' || bookmark.ai_status === 'processing' ? (
+                <span className="text-[11px] font-mono uppercase tracking-wide text-foreground px-2 py-0.5 rounded border border-border flex items-center gap-1.5 bg-muted/40">
+                  <Loader2 className="w-3 h-3 animate-spin text-foreground" />
+                  <span>AI Working...</span>
+                </span>
+              ) : bookmark.category ? (
                 <span className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground px-2 py-0.5 rounded border border-border">
                   {bookmark.category}
                 </span>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center gap-1">
@@ -279,8 +284,8 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
               </div>
             )}
 
-            {/* AI Summary / Description (Restrained editorial layout) */}
-            {(bookmark.summary || bookmark.description) && (
+            {/* AI Summary / Description or In-Progress Working Box */}
+            {(bookmark.summary || bookmark.description) ? (
               <div className="p-3.5 rounded-lg bg-muted/30 border border-border/80 space-y-1">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
                   {bookmark.summary ? 'AI Summary' : 'Description'}
@@ -289,7 +294,17 @@ export const BookmarkDetailModal: React.FC<BookmarkDetailModalProps> = ({
                   {cleanCaption(bookmark.summary || bookmark.description)}
                 </p>
               </div>
-            )}
+            ) : (bookmark.ai_status === 'pending' || bookmark.ai_status === 'processing') ? (
+              <div className="p-3.5 rounded-xl bg-card border border-border/80 space-y-1.5">
+                <div className="flex items-center gap-2 text-foreground text-xs font-mono">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-foreground" />
+                  <span className="font-medium">AI Classification in Progress</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Extracting caption, detecting topic, and generating instant insights...
+                </p>
+              </div>
+            ) : null}
 
             {/* Notes / Edit Notes */}
             {isEditing ? (

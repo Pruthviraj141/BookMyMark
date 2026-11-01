@@ -188,11 +188,11 @@ const BookmarkCardInner: React.FC<BookmarkCardProps> = ({ bookmark, onClick, onT
           </div>
         )}
 
-        {/* Subtle AI status indicator */}
-        {bookmark.ai_status === 'processing' && (
-          <div className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-mono text-muted-foreground border border-border flex items-center gap-1 shadow-2xs">
-            <Loader2 className="w-2.5 h-2.5 animate-spin text-foreground" />
-            <span>AI</span>
+        {/* Clear AI working status badge */}
+        {(bookmark.ai_status === 'pending' || bookmark.ai_status === 'processing') && (
+          <div className="absolute bottom-2 left-2 bg-background/95 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] font-mono text-foreground border border-border flex items-center gap-1.5 shadow-md">
+            <Loader2 className="w-3 h-3 animate-spin text-foreground" />
+            <span className="font-medium tracking-tight">AI Working...</span>
           </div>
         )}
         {bookmark.ai_status === 'failed' && (
@@ -203,22 +203,27 @@ const BookmarkCardInner: React.FC<BookmarkCardProps> = ({ bookmark, onClick, onT
               api.bookmarks.reprocess(bookmark.id).catch(() => {});
             }}
             title="Retry AI"
-            className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-xs px-1.5 py-0.5 rounded text-[9px] font-mono text-muted-foreground border border-border flex items-center gap-1 shadow-2xs cursor-pointer"
+            className="absolute bottom-2 left-2 bg-background/90 backdrop-blur-xs px-2 py-0.5 rounded-full text-[10px] font-mono text-muted-foreground border border-border flex items-center gap-1.5 shadow-2xs cursor-pointer hover:text-foreground"
           >
             <AlertCircle className="w-2.5 h-2.5" />
-            <span>Retry</span>
+            <span>Retry AI</span>
           </button>
         )}
       </div>
 
       {/* Editorial Typography & Metadata with Enhanced Readability */}
       <div className="pt-2 px-1 pb-0.5 flex flex-col flex-grow">
-        {/* Category label */}
-        {bookmark.category && bookmark.category !== 'Other' && (
+        {/* Category label / AI Working badge */}
+        {bookmark.ai_status === 'pending' || bookmark.ai_status === 'processing' ? (
+          <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-mono text-foreground/80">
+            <Loader2 className="w-3 h-3 animate-spin text-foreground" />
+            <span className="uppercase tracking-wider font-medium text-[10px]">AI Categorizing...</span>
+          </div>
+        ) : bookmark.category && bookmark.category !== 'Other' ? (
           <span className="text-[10.5px] font-mono tracking-wider uppercase text-muted-foreground/90 font-medium mb-1">
             {bookmark.category}
           </span>
-        )}
+        ) : null}
 
         {/* Bookmark Title: High contrast, prominent font-semibold, comfortable line height */}
         <h3 className="text-[14px] sm:text-[15px] font-semibold text-foreground line-clamp-2 leading-[1.3] tracking-tight">
@@ -226,11 +231,15 @@ const BookmarkCardInner: React.FC<BookmarkCardProps> = ({ bookmark, onClick, onT
         </h3>
 
         {/* Short description: comfortable reading size, balanced contrast */}
-        {displaySummary && (
+        {displaySummary ? (
           <p className="text-[12.5px] text-muted-foreground font-normal line-clamp-2 leading-relaxed mt-1">
             {displaySummary}
           </p>
-        )}
+        ) : (bookmark.ai_status === 'pending' || bookmark.ai_status === 'processing') ? (
+          <p className="text-[11.5px] text-muted-foreground/60 italic font-normal line-clamp-1 mt-1 flex items-center gap-1">
+            Generating summary & category...
+          </p>
+        ) : null}
 
         {/* Subtle saved-time information */}
         <span className="text-[10.5px] text-muted-foreground/70 font-mono mt-2">

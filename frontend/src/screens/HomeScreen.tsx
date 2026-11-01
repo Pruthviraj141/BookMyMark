@@ -231,6 +231,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [fetchBookmarks]);
 
+  // Auto-refresh when bookmarks are undergoing AI classification in background
+  useEffect(() => {
+    const hasPendingAi = bookmarks.some(
+      (b) => b.ai_status === 'pending' || b.ai_status === 'processing'
+    );
+    if (!hasPendingAi) return;
+
+    const timer = setTimeout(() => {
+      fetchBookmarks();
+    }, 3500);
+
+    return () => clearTimeout(timer);
+  }, [bookmarks, fetchBookmarks]);
+
   // Dynamic platform filter calculation: only show platforms with existing bookmarks!
   const visiblePlatforms = useMemo(() => {
     return ALL_PLATFORMS.filter(
