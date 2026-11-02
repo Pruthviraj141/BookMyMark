@@ -2,9 +2,18 @@
 
 <div align="center">
 
-<img src="frontend/public/branding/bookmymark-symbol.svg" width="80" height="80" alt="BookMyMark Logo" />
+<img src="frontend/public/branding/bookmymark-horizontal.svg" width="320" alt="BookMyMark Logo" />
 
-### Intelligent, High-Performance Multi-Platform Visual Library & Knowledge Vault
+<p align="center">
+  <b>Personal, Visual, AI-Categorized Knowledge Vault for Android and Web.</b><br/>
+  Save Instagram Reels, X (Twitter) threads, YouTube videos, and web articles seamlessly via the native Android Share Menu, with WhatsApp-style cover previews, instant local responsiveness, and automatic text-only Groq AI categorization.
+</p>
+
+<!-- 1-Click Android Download Callout -->
+[![Direct APK Download](https://img.shields.io/badge/⚡_Download_Android_APK-v1.0.0_Direct_Download-00C853?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Pruthviraj141/BookMyMark/releases/latest/download/BookMyMark-debug.apk)
+[![GitHub Release](https://img.shields.io/badge/GitHub_Release-v1.0.0-181717?style=for-the-badge&logo=github)](https://github.com/Pruthviraj141/BookMyMark/releases/tag/v1.0.0)
+
+<br/>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -14,83 +23,164 @@
 [![Supabase](https://img.shields.io/badge/Supabase-Auth_%26_PostgreSQL-3ECF8E?logo=supabase)](https://supabase.com/)
 [![Groq AI](https://img.shields.io/badge/Groq-gpt--oss--20b-F05032)](https://groq.com/)
 
-<p align="center">
-  <b>BookMyMark</b> is a personal, visual, AI-categorized bookmarking application built for Android and Web. Save Instagram Reels, X (Twitter) threads, YouTube videos, and web articles seamlessly via the native Android Share Menu, with WhatsApp-style cover previews, instant local responsiveness, and automatic text-only Groq AI categorization.
-</p>
+<br/>
 
-[Architecture](#-architecture) •
-[Key Features](#-key-features) •
-[Quickstart Guide](#-quickstart-guide) •
-[Project Structure](#-project-structure) •
-[Building Android APK](#-building-the-android-apk) •
-[API & Endpoints](#-api--endpoints) •
-[Database Setup](#-database-setup)
+[📲 Android Download](#-android-apk-direct-download) •
+[🏗 Architecture](#-system-architecture) •
+[🔄 Workflows](#-interactive-working-flows) •
+[🌟 Features](#-key-features) •
+[🚀 Quickstart](#-quickstart-guide) •
+[🛠 Structure](#-project-structure) •
+[🌐 API Reference](#-api--endpoints)
 
 </div>
 
 ---
 
-## 🏗 Architecture
+## 📲 Android APK Direct Download
 
-BookMyMark uses a modern **Local-First, Edge-Assisted** serverless architecture:
+Install BookMyMark directly onto your Android device:
 
+| File | Version | Target OS | Direct Download Link |
+| :--- | :--- | :--- | :--- |
+| **`BookMyMark-debug.apk`** | `v1.0.0` | Android 10+ (API 29–36) | [**⬇️ Download Latest APK**](https://github.com/Pruthviraj141/BookMyMark/releases/latest/download/BookMyMark-debug.apk) |
+
+### ⚡ 3-Step Installation:
+1. Tap the [**Download APK link**](https://github.com/Pruthviraj141/BookMyMark/releases/latest/download/BookMyMark-debug.apk) on your Android device.
+2. Tap the downloaded file in your browser or File Manager (allow *"Install unknown apps"* if prompted).
+3. Open **BookMyMark**, sign in with Google, and start saving bookmarks directly from your Android Share Sheet!
+
+---
+
+## 🏗 System Architecture
+
+BookMyMark is built with a **Local-First, Edge-Assisted** serverless topology. The frontend communicates directly with Supabase for data and authentication, while an edge worker offloads link metadata scraping, edge caching, and AI classification.
+
+```mermaid
+flowchart TB
+    subgraph Client ["📱 Client Application (Android / Web)"]
+        UI["React 19 + Tailwind CSS"]
+        Capacitor["Capacitor Native Android Bridge"]
+        Cache[("Local SQLite / Storage Cache\n(<1ms instant render)")]
+        YT["Client-Side YouTube Recognizer\n(Zero network roundtrips)"]
+    end
+
+    subgraph Edge ["⚡ Cloudflare Edge Worker (savr-api)"]
+        WorkerRouter["Hono Edge Router\n(/health, /preview, /enrich)"]
+        EdgeCache["Cloudflare CDN Cache\n(24h TTL, X-Cache: HIT/MISS)"]
+        Scraper["HTML & oEmbed Metadata Scraper"]
+        SSRF["SSRF Guard\n(RFC 1918 & Localhost Validation)"]
+    end
+
+    subgraph Cloud ["☁️ Cloud Services & Intelligence"]
+        Groq["Groq Cloud LLM\n(openai/gpt-oss-20b, ≤160 tokens)"]
+        SupabaseDB[("Supabase PostgreSQL\n(Row-Level Security & GIN FTS)")]
+        SupabaseAuth["Supabase Auth\n(Google OAuth)"]
+        SupabaseRT["Supabase Realtime\n(WebSocket engine)"]
+    end
+
+    UI <--> Capacitor
+    UI <--> Cache
+    UI -.-> YT
+
+    UI -->|"Direct CRUD (RLS)"| SupabaseDB
+    UI -->|"OAuth Session (JWT)"| SupabaseAuth
+    SupabaseRT -->|"Realtime Card Updates"| UI
+
+    UI -->|"GET /api/link-preview"| WorkerRouter
+    UI -->|"POST /api/bookmarks/:id/enrich"| WorkerRouter
+
+    WorkerRouter <--> EdgeCache
+    WorkerRouter --> SSRF --> Scraper
+    WorkerRouter -->|"Extract Text Prompt"| Groq
+    WorkerRouter -->|"Update Category & Tags"| SupabaseDB
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                 Android Device / Web Client                 │
-│                                                             │
-│  • React 19 + Vite + Tailwind CSS                           │
-│  • Capacitor Android Native Bridge                          │
-│  • Instant Local Cache (<1ms UI response)                   │
-│  • Client-side YouTube preview (0 backend calls)            │
-│  • Viewport-based lazy loading (IntersectionObserver)       │
-└──────────────┬───────────────────────────────┬──────────────┘
-               │                               │
-    Direct CRUD│(Row-Level Security)           │AI Enrichment &
-    via SDK    │                               │Link Preview
-               ▼                               ▼
-┌──────────────────────────────┐ ┌─────────────────────────────┐
-│         Supabase             │ │  Cloudflare Worker          │
-│                              │ │  (savr-api)                 │
-│ • Google OAuth (JWT tokens)  │ │                             │
-│ • PostgreSQL Database        │ │ • GET /health               │
-│ • Full-Text Search (GIN)     │ │ • GET /api/link-preview     │
-│ • Realtime WebSocket events  │ │   (Edge Cached, 24h)        │
-│ • Row-Level Security (RLS)   │ │ • POST /api/bookmarks/      │
-│                              │ │        :id/enrich           │
-│                              │ │ • Text-Only Groq Classifier │
-│                              │ │   (openai/gpt-oss-20b)      │
-└──────────────────────────────┘ └─────────────────────────────┘
+
+---
+
+## 🔄 Interactive Working Flows
+
+### 1. Native Android Share Menu Intake Flow
+
+How a user saves a link with one tap from Instagram, X, or YouTube without interrupting their app experience:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User on Android
+    participant HostApp as Host App (Instagram / X / Chrome)
+    participant Receiver as Native ShareReceiverActivity
+    participant Bridge as NativeBridge (SharedPreferences)
+    participant Client as BookMyMark React Client
+    participant Edge as Cloudflare Worker API
+    participant Groq as Groq AI (gpt-oss-20b)
+    participant Supabase as Supabase PostgreSQL
+
+    User->>HostApp: Tap Share on Post / Video / Link
+    HostApp->>Receiver: android.intent.action.SEND (URL)
+    Receiver->>Bridge: Read stored user session
+    Receiver->>Client: Forward intent payload & trigger native toast
+    Client-->>User: Immediate feedback (<1ms) - user stays in host app!
+
+    Client->>Supabase: INSERT bookmark (status: 'pending', thumbnail: null)
+    Client->>Edge: POST /api/bookmarks/:id/enrich (Bearer JWT)
+
+    Note over Edge: Background Job (waitUntil)
+    Edge->>Edge: SSRF Validation & Text Scrape
+    Edge->>Groq: Classify content (Title, Tags, Category, Summary)
+    Groq-->>Edge: Structured JSON response (<160 tokens)
+    Edge->>Supabase: UPDATE bookmark (category, tags, summary, status='completed')
+
+    Supabase-->>Client: WebSocket Broadcast (postgres_changes UPDATE)
+    Client-->>User: Card automatically reveals AI tags & summary in feed!
+```
+
+---
+
+### 2. Zero-Database-Storage Link Preview Pipeline
+
+How BookMyMark achieves rich WhatsApp-style previews with **0 bytes of binary image storage** in PostgreSQL:
+
+```mermaid
+flowchart TD
+    A["Link Received in Feed"] --> B{"Is YouTube URL?"}
+
+    B -- "Yes" --> C["Compute Deterministic Thumbnail\nhttps://i.ytimg.com/vi/{id}/hqdefault.jpg"]
+    C --> D["⚡ Instant Local Display (0 Backend Calls)"]
+
+    B -- "No" --> E{"Approaching Viewport?\n(IntersectionObserver ≤ 200px)"}
+    E -- "No" --> F["💤 Defer Fetching (Zero Unneeded Bandwidth)"]
+    F --> E
+
+    E -- "Yes" --> G["GET /api/link-preview?url=..."]
+    G --> H{"Cloudflare Edge Cache Hit?\n(caches.default)"}
+
+    H -- "HIT" --> I["🚀 Return 24h Edge Cached Metadata\n(X-Cache: HIT)"]
+    H -- "MISS" --> J{"SSRF Security Check\n(Reject RFC 1918 & Localhost)"}
+
+    J -- "Blocked" --> K["Fallback to Platform Icon / Favicon"]
+    J -- "Allowed" --> L["Extract OpenGraph / Twitter Cards / oEmbed"]
+    L --> M["Store in Cloudflare Edge Cache for 24h"]
+    M --> N["Return Metadata with CDN Image URL"]
+
+    I --> O["Render Beautiful Preview Card"]
+    N --> O
+    K --> O
+    D --> O
 ```
 
 ---
 
 ## 🌟 Key Features
 
-### 1. 📱 Native Android Share Menu Integration
-Save links from any mobile app (Instagram, X, YouTube, Reddit, Chrome) by tapping **Share → BookMyMark**.
-- **Instant Intake:** Shares save directly to PostgreSQL or queue locally when offline.
-- **One-Tap Experience:** Authenticated shares save and trigger an instant toast without disrupting your workflow.
-
-### 2. 🖼️ WhatsApp-Style Cover Previews (Zero Database Image Storage)
-- **Client-Side YouTube Recognition:** Instant thumbnail generation (`https://i.ytimg.com/vi/${id}/hqdefault.jpg`) with 0 network calls.
-- **Cloudflare Edge Cache (`caches.default`):** Web link previews are cached at Cloudflare edge locations for 24 hours (`X-Cache: HIT`).
-- **Viewport-Based Lazy Loading:** Off-screen cards do not trigger network calls until approaching the viewport (`IntersectionObserver`).
-- **Zero Image Bloat:** No binary image blobs are stored in Supabase or SQLite (`thumbnail_url: null`).
-
-### 3. 🤖 Lightweight Text-Only Groq AI Classification
-- **Model:** `openai/gpt-oss-20b` via Groq Cloud.
-- **Token-Efficient:** Capped at **160 max tokens** per request for rapid classification.
-- **Content Deduplication:** Computes SHA-256 text fingerprints to avoid re-classifying identical content.
-- **Insufficient Content Protection:** If extracted text is under 15 characters, marks status as `insufficient_content` without hallucinating tags or summaries.
-- **Zero Vision Overhead:** AI operates strictly on text (titles, captions, OpenGraph descriptions); no images are sent to the LLM.
-
-### 4. ⚡ Supabase Realtime & PostgreSQL Full-Text Search
-- **Instant AI Feedback:** Supabase Realtime WebSocket subscriptions (`postgres_changes` on `UPDATE`). When Groq finishes classification, the card updates on screen in real time.
-- **Full-Text Search (FTS):** Generated `search_vector tsvector` column with a GIN index on `title (Weight A)`, `description & summary (Weight B)`, and `tags & extracted text (Weight C)`.
-
-### 5. 📴 Local-First Offline Capability
-- Local storage cache provides **<1ms instant display** on app open.
-- Offline sync queue tracks pending operations and flushes automatically when connectivity returns.
+| Feature | Description | Architecture Benefit |
+| :--- | :--- | :--- |
+| **📱 Native Share Intake** | Share links from Instagram, X, YouTube, Reddit, Chrome directly to BookMyMark. | One-tap intake without opening the app or leaving your current screen. |
+| **🖼️ WhatsApp-Style Previews** | High-definition card previews without storing images in your database. | Zero storage bloat in PostgreSQL; YouTube resolved locally, others edge-cached for 24 hours. |
+| **🤖 Ultra-Fast Groq AI** | Categorizes content and generates summary tags using `openai/gpt-oss-20b`. | Capped at 160 tokens; deduplicates via SHA-256 text fingerprinting. |
+| **🔄 Supabase Realtime** | Realtime WebSocket synchronization on database `UPDATE` events. | Eliminates polling; UI updates automatically the moment AI completes. |
+| **🔍 Full-Text Search (GIN)** | PostgreSQL weighted full-text search (`search_vector tsvector`). | Instant multi-attribute search across titles, tags, and AI summaries. |
+| **📴 Local-First Offline Mode** | Local cache + queued sync operations. | UI loads under 1ms on app open; changes sync automatically when online. |
 
 ---
 
@@ -108,7 +198,7 @@ Save links from any mobile app (Instagram, X, YouTube, Reddit, Chrome) by tappin
 │   │   │   ├── metadata.service.ts        # Metadata normalization
 │   │   │   └── platform.service.ts        # Platform detection logic
 │   │   └── utils/                         # URL normalization and SSRF validation
-│   ├── tests/                     # Vitest test suite
+│   ├── tests/                     # Vitest test suite (Auth, Bookmarks, Metadata, Groq)
 │   └── wrangler.jsonc             # Cloudflare Worker configuration & bindings
 │
 ├── frontend/                      # React 19 + Capacitor Android Client
@@ -130,10 +220,9 @@ Save links from any mobile app (Instagram, X, YouTube, Reddit, Chrome) by tappin
 │               ├── NativeBridgePlugin.kt    # SharedPreferences session bridge
 │               └── ShareReceiverActivity.kt # Native Android sharesheet intake
 │
-├── scripts/                       # Branding and icon generation utilities
+├── scripts/                       # Branding and asset generator utilities
 ├── supabase/
 │   └── migrations/                # PostgreSQL schema, RLS, Realtime & FTS GIN index
-├── CONTRIBUTING.md                # Contribution guidelines
 ├── LICENSE                        # MIT License
 └── SECURITY.md                    # Security vulnerability reporting policy
 ```
@@ -142,14 +231,16 @@ Save links from any mobile app (Instagram, X, YouTube, Reddit, Chrome) by tappin
 
 ## 🚀 Quickstart Guide
 
-Anyone can clone this repository and run the full stack locally:
+Anyone can clone and run BookMyMark locally in minutes:
 
 ### 1. Prerequisites
-- **Node.js**: `v20.x` or later
+- **Node.js**: `v20.x` or higher
 - **npm** or **pnpm**
 - **Supabase Account**: Free project from [supabase.com](https://supabase.com)
 - **Groq API Key**: Free key from [console.groq.com](https://console.groq.com)
-- **Android Studio & SDK** *(optional, only needed for compiling Android APK)*
+- **Android Studio & SDK** *(optional, only for building native Android APK)*
+
+---
 
 ### 2. Clone the Repository
 ```bash
@@ -157,13 +248,17 @@ git clone https://github.com/Pruthviraj141/BookMyMark.git
 cd BookMyMark
 ```
 
+---
+
 ### 3. Database Setup (Supabase)
-1. In your Supabase Dashboard, navigate to the **SQL Editor**.
-2. Run the migrations in order from `supabase/migrations/`:
-   - First: [`20261101000000_create_bookmarks_and_storage.sql`](supabase/migrations/20261101000000_create_bookmarks_and_storage.sql)
-   - Second: [`20261101120000_enable_realtime_and_fulltext_search.sql`](supabase/migrations/20261101120000_enable_realtime_and_fulltext_search.sql)
-3. Under **Authentication → Providers**, enable **Google** (or Email auth).
-4. Under **Database → Replication**, ensure Realtime is enabled for the `bookmarks` table.
+1. Open your Supabase Dashboard and go to the **SQL Editor**.
+2. Run the two migration scripts in sequential order:
+   - [`supabase/migrations/20261101000000_create_bookmarks_and_storage.sql`](supabase/migrations/20261101000000_create_bookmarks_and_storage.sql)
+   - [`supabase/migrations/20261101120000_enable_realtime_and_fulltext_search.sql`](supabase/migrations/20261101120000_enable_realtime_and_fulltext_search.sql)
+3. Under **Authentication → Providers**, enable **Google** (or Email).
+4. Under **Database → Replication**, verify that Realtime is toggled ON for the `bookmarks` table.
+
+---
 
 ### 4. Backend Setup
 ```bash
@@ -171,7 +266,7 @@ cd backend
 npm install
 cp .env.example .env
 ```
-Edit `.env` and configure:
+Populate `.env` with your Groq and Supabase keys:
 ```env
 GROQ_API_KEY=your_groq_api_key_here
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -179,21 +274,23 @@ SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
 SUPABASE_SECRET_KEY=your_supabase_service_role_key
 ```
 
-Run tests to verify the backend pipeline:
+Verify the backend test suite:
 ```bash
 npm test
 ```
 
-Start the local API server:
+Start the backend server:
 ```bash
 npm run dev
-# Server running at http://localhost:3000
+# Running at http://localhost:3000
 ```
 
-*(Optional)* Or deploy directly to Cloudflare Workers:
+*(Optional)* Deploy to Cloudflare Workers:
 ```bash
 npx wrangler deploy
 ```
+
+---
 
 ### 5. Frontend Setup
 ```bash
@@ -201,45 +298,45 @@ cd ../frontend
 npm install
 cp .env.example .env
 ```
-Edit `.env` and set:
+Edit `.env` with your URLs:
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
-VITE_API_BASE_URL=http://localhost:3000   # Or your deployed worker URL
+VITE_API_BASE_URL=http://localhost:3000   # Or your deployed Cloudflare worker URL
 ```
 
-Start the Vite development server:
+Launch the Vite development server:
 ```bash
 npm run dev
+# App ready at http://localhost:5173
 ```
-Open `http://localhost:5173` in your browser.
 
 ---
 
-## 📱 Building the Android APK
+## 📱 Compiling the Android APK
 
-BookMyMark uses Capacitor to package the React application as a native Android app with Share Menu capabilities:
+To build the APK locally from source:
 
 ```bash
 cd frontend
 
-# 1. Build the production web bundle
+# 1. Build the web production assets
 npm run build
 
-# 2. Sync web assets with native Android project
+# 2. Sync web bundle to Android native container
 npx cap sync android
 
-# 3. Compile the debug APK
+# 3. Compile the debug APK using Gradle
 cd android
 ./gradlew assembleDebug
 ```
 
-The compiled APK will be located at:
+The resulting APK will be ready at:
 ```
 frontend/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-To install directly onto a connected Android phone with USB debugging enabled:
+To install directly to a connected Android phone over USB:
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -248,16 +345,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 🌐 API & Endpoints
 
-| Endpoint | Method | Auth | Description |
-| :--- | :--- | :--- | :--- |
-| `/health` | `GET` | Public | Service health and runtime status. |
-| `/api/link-preview?url=...` | `GET` | Public | Extracts metadata; edge-cached for 24h (`X-Cache: HIT`). |
-| `/api/bookmarks/:id/enrich` | `POST` | Bearer Token | Authenticated background AI classification with Groq `openai/gpt-oss-20b`. |
-
-*Note: All regular CRUD operations (insert, select, update, delete, search) communicate directly between the frontend client and Supabase PostgreSQL using Row-Level Security (RLS).*
+| Endpoint | Method | Auth | Description | Cache Strategy |
+| :--- | :--- | :--- | :--- | :--- |
+| `/health` | `GET` | Public | Service health and runtime status check. | No cache |
+| `/api/link-preview?url=...` | `GET` | Public | Scrapes OpenGraph, Twitter Card, and oEmbed metadata. | Cloudflare Edge Cache (24 hours, `X-Cache: HIT`) |
+| `/api/bookmarks/:id/enrich` | `POST` | Bearer Token | Authenticated background AI categorization via Groq `openai/gpt-oss-20b`. | Background execution (`waitUntil`) |
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+Distributed under the [MIT License](LICENSE).
