@@ -83,12 +83,27 @@ frontend/android/.navigation/
 *.keystore
 *.jks
 
-# Temporary and Scratch Directories
+# Temporary, Scratch & Archive Directories
 tmp/
 temp/
 scratch/
+archive/
+_archive/
+promo-video/
 .cache/
 .oxlint-cache
 .agent/
 .agents/
 skills-lock.json
+
+# Root Screenshots & Media Scratch (keep public/assets branding intact)
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.mp4
+/*.webm
+/*.mov
+/*.wav
+/*.mp3
+

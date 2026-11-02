@@ -1,37 +1,32 @@
-# SAVR — Cloudflare Worker Backend Service (`savr-api`)
+# BookMyMark — Backend Edge API Service
 
-This directory houses the serverless edge backend for SAVR, deployed on **Cloudflare Workers** using Hono and TypeScript.
-
-Live Deployment URL:
-```
-https://savr-api.markyourday.workers.dev
-```
+This directory houses the high-performance serverless edge backend for **BookMyMark**, built with [Hono](https://hono.dev/), TypeScript, and deployed on [Cloudflare Workers](https://workers.cloudflare.com/).
 
 ---
 
-## 1. Responsibilities
+## 1. Architecture & Responsibilities
 
-In SAVR's simplified architecture, the Cloudflare Worker does **NOT** act as a general database CRUD middleman. Normal bookmark queries and mutations go directly from the frontend to Supabase using Row-Level Security (RLS).
-
-The Worker is dedicated strictly to two edge responsibilities:
+In BookMyMark's modern **Local-First, Edge-Assisted** architecture:
+- Core database queries and mutations communicate directly between the frontend client and Supabase PostgreSQL using Row-Level Security (RLS).
+- The Backend Edge Worker handles metadata scraping, edge caching, and AI classification:
 
 1. **`GET /api/link-preview?url=...`**
-   - Retrieves OpenGraph, Twitter Card, and oEmbed metadata for external URLs.
-   - Cached at Cloudflare's CDN Edge for 24 hours (`caches.default`) with `X-Cache: HIT` / `X-Cache: MISS`.
-   - Returns temporary display-only image URLs. Does not store image blobs or populate database tables.
-   - Built-in SSRF protection (rejects localhost, RFC 1918 private IPs, and loopback addresses).
+   - Extracts OpenGraph, Twitter Card, and oEmbed metadata for external URLs (Instagram, X, YouTube, articles, etc.).
+   - Edge-cached via Cloudflare's CDN cache (`caches.default`) for 24 hours (`X-Cache: HIT` / `X-Cache: MISS`).
+   - Returns temporary display-only thumbnail previews without storing bloated binary blobs in PostgreSQL.
+   - Built-in SSRF protection (rejects localhost, RFC 1918 private subnets, and loopback addresses).
 
 2. **`POST /api/bookmarks/:id/enrich`**
    - Authenticated endpoint protected by Supabase JWT verification.
-   - Confirms bookmark ownership under the caller's RLS context.
-   - Runs asynchronous background execution (`c.executionCtx.waitUntil`) to:
-     - Scrape textual metadata (titles, captions, page excerpts).
-     - Call **Groq API** with model `openai/gpt-oss-20b`.
-     - Cap output tokens to ~160 tokens with structured JSON output.
-     - Update bookmark category, tags, and summary directly in Supabase.
+   - Verifies bookmark ownership before running AI enrichment.
+   - Uses non-blocking background execution (`c.executionCtx.waitUntil`):
+     - Scrapes textual metadata (title, description, page excerpts).
+     - Calls **Groq Cloud API** with model `openai/gpt-oss-20b`.
+     - Output capped at 160 tokens for maximum speed and token efficiency.
+     - Automatically classifies category, tags, and summary into Supabase.
 
 3. **`GET /health`**
-   - Public health check confirming edge status and worker deployment.
+   - Health check endpoint returning runtime status.
 
 ---
 
@@ -40,28 +35,64 @@ The Worker is dedicated strictly to two edge responsibilities:
 ```
 backend/
 ├── src/
-│   ├── worker.ts                  # Hono edge entry point and route handlers
+│   ├── worker.ts                  # Cloudflare Worker & Hono edge entrypoint
+│   ├── index.ts                   # Standalone Node.js server entrypoint (local dev/tests)
+│   ├── app.ts                     # Hono application router
+│   ├── config/                    # Environment variables validation (Zod)
 │   ├── services/
 │   │   ├── extractor.service.ts       # HTML & oEmbed metadata scraper
 │   │   ├── groq-classifier.service.ts # Text-only Groq LLM integration
+│   │   ├── metadata.service.ts        # Metadata normalization service
 │   │   └── platform.service.ts        # URL platform detector (Instagram, X, YouTube, etc.)
-│   └── utils/
-│       └── url.utils.ts               # URL normalization, parsing, and SSRF checks
+│   ├── utils/
+│   │   └── url.utils.ts               # URL normalization, parsing, and SSRF checks
+│   └── validators/                # Request payload validation
+├── tests/                         # Vitest test suite (Auth, Bookmarks, Metadata, Groq)
 ├── wrangler.jsonc                 # Cloudflare Worker configuration & environment bindings
-└── package.json                   # Dependencies
+└── package.json                   # Dependencies & scripts
 ```
 
 ---
 
-## 3. Deployment
+## 3. Local Development
 
-To deploy updates to Cloudflare Workers:
+### 1. Install Dependencies
 ```bash
-cd backend
+npm install
+```
+
+### 2. Environment Variables
+Copy `.env.example` to `.env`:
+```bash
+cp .env.example .env
+```
+Populate your `GROQ_API_KEY` (free from [Groq Console](https://console.groq.com)) and your Supabase credentials.
+
+### 3. Run Standalone Node Dev Server
+```bash
+npm run dev
+```
+
+### 4. Run Edge Worker locally with Wrangler
+```bash
+npx wrangler dev
+```
+
+### 5. Run Test Suite
+```bash
+npm test
+```
+
+---
+
+## 4. Cloudflare Worker Deployment
+
+To deploy to Cloudflare Workers:
+```bash
 npx wrangler deploy
 ```
 
-Worker secrets (`GROQ_API_KEY`, `SUPABASE_SECRET_KEY`) are managed securely via Wrangler encrypted secrets:
+Set production secrets securely via Wrangler:
 ```bash
 npx wrangler secret put GROQ_API_KEY
 npx wrangler secret put SUPABASE_SECRET_KEY
